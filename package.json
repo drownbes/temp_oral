@@ -1,0 +1,67 @@
+{
+  "name": "temp-oral",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "imports": {
+    "#shared/*": "./src/shared/*",
+    "#modules/*": "./src/modules/*",
+    "#test/*": "./test/*"
+  },
+  "scripts": {
+    "dev": "process-compose up",
+    "dev:api": "node --env-file=.env.development --env-file-if-exists=.env --watch-path=src src/main/api.ts",
+    "dev:worker": "watchexec --restart --watch src --exts ts --stop-signal SIGTERM -- node --env-file=.env.development --env-file-if-exists=.env src/main/worker.ts",
+    "start:api": "node src/main/api.ts",
+    "start:worker": "node src/main/worker.ts",
+    "db:migrate": "node --env-file=.env.development --env-file-if-exists=.env src/main/migrate.ts",
+    "typecheck": "tsc",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "arch": "depcruise src",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "check": "pnpm typecheck && pnpm lint && pnpm arch && pnpm test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1153.0",
+    "@fastify/multipart": "^10.1.4",
+    "@fastify/otel": "^0.21.3",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.223.0",
+    "@opentelemetry/instrumentation": "^0.223.0",
+    "@opentelemetry/instrumentation-aws-sdk": "^0.78.0",
+    "@opentelemetry/instrumentation-http": "^0.223.0",
+    "@opentelemetry/instrumentation-pg": "^0.76.0",
+    "@opentelemetry/instrumentation-undici": "^0.33.0",
+    "@opentelemetry/resources": "^2.12.0",
+    "@opentelemetry/sdk-node": "^0.223.0",
+    "@opentelemetry/sdk-trace-base": "^2.12.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@temporalio/activity": "^1.24.0",
+    "@temporalio/client": "^1.24.0",
+    "@temporalio/common": "^1.24.0",
+    "@temporalio/interceptors-opentelemetry": "^1.24.0",
+    "@temporalio/worker": "^1.24.0",
+    "@temporalio/workflow": "^1.24.0",
+    "fastify": "^5.12.7",
+    "import-in-the-middle": "3.5.2",
+    "kysely": "^0.29.7",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@swc/core": "1.16.18",
+    "@temporalio/testing": "^1.24.0",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "dependency-cruiser": "^18.6.0",
+    "pino-pretty": "^13.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

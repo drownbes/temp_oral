@@ -1,0 +1,33 @@
+# Single-binary Tempo for local development. Production Tempo is configured by infra.
+stream_over_http_enabled: true
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9095
+  log_level: warn
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 127.0.0.1:4317
+        http:
+          endpoint: 127.0.0.1:4318
+storage:
+  trace:
+    backend: local
+    wal:
+      path: ${DEV_DATA_DIR}/tempo/wal
+    local:
+      path: ${DEV_DATA_DIR}/tempo/blocks
+# Tempo 3.x single-binary components default to /var/tempo; keep everything under .data
+live_store:
+  shutdown_marker_dir: ${DEV_DATA_DIR}/tempo/live-store/shutdown-marker
+  wal:
+    path: ${DEV_DATA_DIR}/tempo/live-store/traces
+block_builder:
+  wal:
+    path: ${DEV_DATA_DIR}/tempo/block-builder/traces
+backend_scheduler:
+  local_work_path: ${DEV_DATA_DIR}/tempo/backend-scheduler

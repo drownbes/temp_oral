@@ -1,0 +1,128 @@
+# temp-oral
+
+TypeScript service scaffold: hexagonal architecture with DDD bounded contexts, PostgreSQL
+(Kysely), S3, Temporal, structured logging (pino → VictoriaLogs) and distributed tracing
+(OpenTelemetry → Tempo).
+
+## Quick start
+
+```sh
+nix develop          # or `direnv allow` (.envrc: use flake)
+pnpm install
+pnpm dev             # process-compose: infra + migrations + api + worker
+```
+
+| What              | Where                                   |
+| ----------------- | --------------------------------------- |
+| HTTP API          | http://127.0.0.1:8080                   |
+| Grafana           | http://127.0.0.1:3000 (anonymous admin) |
+| Temporal UI       | http://127.0.0.1:8233                   |
+| VictoriaLogs UI   | http://127.0.0.1:9428/select/vmui       |
+| Postgres          | `postgres://postgres@127.0.0.1:5432/app` |
+| S3 (versitygw)    | http://127.0.0.1:7070, bucket `app-dev`, key `devaccess` / `devsecretkey` |
+
+All local state lives in `.data/` — delete it to start over.
+
+```sh
+curl -F uploadedBy=ada@example.com -F file=@README.md localhost:8080/documents
+curl localhost:8080/documents/<id>                       # status: processed, checksum
+curl 'localhost:8080/notifications?recipient=ada@example.com'
+```
+
+In Grafana → Explore → Tempo, one trace spans `POST /documents` → S3 → Postgres →
+`processDocumentWorkflow` → activities → `sendNotificationWorkflow`; "Logs for this span"
+jumps to the matching VictoriaLogs lines, and log lines link back to the trace.
+
+## Scripts
+
+| Script                  | Does                                                               |
+| ----------------------- | ------------------------------------------------------------------ |
+| `pnpm dev`              | whole local stack (`process-compose up`)                           |
+| `pnpm dev:api` / `dev:worker` | one process with reload (needs infra running)                |
+| `pnpm db:migrate`       | apply every module's migrations                                    |
+| `pnpm test`             | unit + workflow tests (self-contained, ephemeral Temporal server)  |
+| `pnpm test:integration` | adapter tests against the running local stack (`app_test` DB)      |
+| `pnpm typecheck` / `lint` / `format` / `arch` | tsc, Biome, dependency-cruiser rules         |
+| `pnpm check`            | typecheck + lint + arch + unit tests                               |
+
+Node runs `.ts` directly (type stripping); there is no build step. `tsc` only type checks, so
+code must stick to erasable syntax (no enums, namespaces or parameter properties).
+
+## Layout
+
+```
+src/
+  main/                       composition roots: api.ts, worker.ts, migrate.ts, modules.ts
+  shared/
+    kernel/                   pure building blocks: DomainError, Brand, Clock
+    infrastructure/           technical plumbing shared by all contexts:
+                              config (zod), logger, telemetry, db pool + migrator,
+                              S3 client, Temporal client/plugin/logger, HTTP server
+  modules/<context>/
+    domain/                   aggregates, value objects, domain errors, repository ports
+    application/              use cases + outbound ports (and in-memory fakes for tests)
+    infrastructure/           adapters implementing ports: Kysely repos, S3, Temporal starter
+    interface/                adapters driving use cases: http routes, temporal workflows/activities
+    contracts/                (optional) the context's published language for other contexts
+    index.ts                  the module definition: wires ports to adapters
+```
+
+Two example contexts:
+
+- **documents** — upload to S3, metadata in Postgres, a Temporal workflow computes a checksum.
+- **notifications** — idempotent notification sending; exposes a contract (task queue,
+  workflow name, input/output types) that documents uses to start its workflow as a child.
+
+### Rules (enforced by `pnpm arch`)
+
+- `domain` imports only its own domain and `shared/kernel` — no npm packages, no node builtins.
+- `application` imports only its own domain/application and `shared/kernel`.
+- Contexts import each other only via `modules/<other>/contracts`.
+- `shared` never imports `modules`; `src/main` uses only `modules/*/index.ts`.
+- `workflows.ts` (Temporal sandbox) imports only `@temporalio/workflow`, contracts and types.
+
+### Shared vs. owned infrastructure
+
+Shared (one per process): Postgres pool, S3 client, Temporal connection, logger, telemetry,
+config. Owned by each context: its Postgres **schema** (and migration history, tracked in
+that schema), its S3 **key prefix**, its Temporal **task queue**, its repositories and adapters.
+That keeps the option of splitting a context into its own service open.
+
+### Adding a context
+
+1. Create `src/modules/<name>/` with the layers above and an `index.ts` exporting a
+   `ModuleDefinition` (`migrations`, optional `http`, optional `worker`).
+2. Put migrations in `infrastructure/persistence/migrations/` against schema `<name>`.
+3. Register it in `src/main/modules.ts`.
+
+## Observability
+
+- **Logs**: pino JSON on stdout with `service`, `component`, `level`, ISO `time`, `msg`, and
+  `trace_id`/`span_id` whenever a span is active (HTTP requests, activities, workflow logs via
+  Temporal sinks). Production log agents ship stdout to VictoriaLogs; locally
+  `scripts/dev/ship-logs.ts` does it and pretty-prints to the terminal.
+- **Traces**: OpenTelemetry SDK, configured with the standard `OTEL_*` env vars
+  (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER`, `OTEL_RESOURCE_ATTRIBUTES`,
+  `OTEL_SERVICE_NAME`, `OTEL_SDK_DISABLED`). Instrumented: http, undici/fetch, Fastify,
+  pg, AWS SDK, Temporal client/workflows/activities. Service names default to
+  `temp-oral-api` and `temp-oral-worker`.
+
+## Configuration
+
+Validated once at startup by `src/shared/infrastructure/config.ts`; invalid config exits with a
+readable report. Local values are in `.env.development` (checked in); put overrides in `.env`
+(git-ignored). Production gets real environment variables; AWS credentials come from the default
+provider chain. Set `TEMPORAL_API_KEY` for Temporal Cloud (enables TLS).
+
+## Things worth knowing
+
+- **MinIO is gone from nixpkgs**; local S3 is [versitygw](https://github.com/versity/versitygw)
+  serving `.data/s3/<bucket>` directories.
+- **`node --watch` breaks Temporal workers** (watch mode posts messages from worker threads,
+  which Temporal's workflow thread pool misreads), so `dev:worker` uses `watchexec`.
+- **Temporal's OTel interceptors are still on OTel SDK 1.x.** Workflow spans are converted
+  to the 2.x shape in `shared/infrastructure/temporal/temporal.ts` (`WorkflowSpanAdapter`);
+  remove it once Temporal upgrades.
+- **TypeScript 7** has no JS compiler API yet, so dependency-cruiser parses with swc and prints a
+  `missing-typescript-transpiler` warning. The rules are still checked.
+- Tempo 3.x in single-binary mode logs harmless `backendworker ... no jobs found` errors.

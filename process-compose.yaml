@@ -1,0 +1,102 @@
+# Local development stack. Run inside the devShell: `process-compose up` (or `pnpm dev`).
+# All state lives in ./.data — delete it to start from scratch.
+version: "0.5"
+
+log_location: .data/process-compose.log
+
+processes:
+  postgres:
+    command: scripts/dev/postgres.sh
+    readiness_probe:
+      exec:
+        command: pg_isready -h 127.0.0.1 -p 5432 -U postgres
+      period_seconds: 1
+    shutdown:
+      signal: 2 # SIGINT = fast shutdown
+
+  postgres-init:
+    command: |
+      psql -h 127.0.0.1 -U postgres -tAc "select 1 from pg_database where datname = 'app'" | grep -q 1 \
+        || createdb -h 127.0.0.1 -U postgres app
+    depends_on:
+      postgres:
+        condition: process_healthy
+
+  s3:
+    # versitygw serves every directory under .data/s3 as a bucket
+    command: |
+      mkdir -p .data/s3/app-dev
+      exec versitygw --access devaccess --secret devsecretkey --port 127.0.0.1:7070 posix .data/s3
+    readiness_probe:
+      exec:
+        # plain TCP check; an HTTP probe would fill the gateway log with 403s
+        command: bash -c '</dev/tcp/127.0.0.1/7070'
+      period_seconds: 1
+
+  temporal:
+    command: |
+      exec temporal server start-dev --ip 127.0.0.1 --port 7233 --ui-port 8233 \
+        --db-filename .data/temporal.db --log-level warn
+    readiness_probe:
+      exec:
+        command: temporal operator namespace describe --namespace default --address 127.0.0.1:7233
+      period_seconds: 2
+      timeout_seconds: 5
+
+  tempo:
+    command: |
+      mkdir -p .data/tempo
+      exec tempo -config.file=dev/tempo.yaml -config.expand-env=true
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 3200
+        path: /ready
+      period_seconds: 2
+
+  victorialogs:
+    command: exec victoria-logs -storageDataPath=.data/victorialogs -httpListenAddr=127.0.0.1:9428 -retentionPeriod=7d -loggerLevel=WARN
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 9428
+        path: /health
+      period_seconds: 1
+
+  grafana:
+    command: scripts/dev/grafana.sh
+    depends_on:
+      tempo:
+        condition: process_healthy
+      victorialogs:
+        condition: process_healthy
+
+  migrate:
+    command: pnpm db:migrate
+    depends_on:
+      postgres-init:
+        condition: process_completed_successfully
+
+  api:
+    command: pnpm dev:api | node scripts/dev/ship-logs.ts
+    depends_on:
+      migrate:
+        condition: process_completed_successfully
+      s3:
+        condition: process_healthy
+      temporal:
+        condition: process_healthy
+      victorialogs:
+        condition: process_healthy
+
+  worker:
+    command: pnpm dev:worker | node scripts/dev/ship-logs.ts
+    depends_on:
+      migrate:
+        condition: process_completed_successfully
+      s3:
+        condition: process_healthy
+      temporal:
+        condition: process_healthy
+      victorialogs:
+        condition: process_healthy
