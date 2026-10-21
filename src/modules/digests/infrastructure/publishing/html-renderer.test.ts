@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DigestPage } from '../../application/ports.ts';
 import type { DigestId } from '../../domain/digest.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
+import type { Story } from '../../domain/ranking.ts';
 import type { RunId } from '../../domain/run-id.ts';
 import { renderDigestPage } from './html-renderer.ts';
 
@@ -15,14 +16,30 @@ const entry = (overrides: Partial<DigestEntry>): DigestEntry => ({
   publishedAt: new Date('2026-10-21T10:05:00Z'),
   analysis: { summary: 'Mesa shipped.', relevance: 0.9, reason: 'r', tags: ['mesa', 'gpu'] },
   failure: null,
+  embedding: null,
   ...overrides,
+});
+
+const story = (
+  entries: DigestEntry[],
+  text: { headline: string; summary: string } | null = null,
+): Story => ({
+  cluster: {
+    id: entries[0]?.itemId ?? '',
+    itemIds: entries.map((e) => e.itemId),
+    headline: text?.headline ?? null,
+    summary: text?.summary ?? null,
+  },
+  entries,
+  relevance: Math.max(...entries.map((e) => e.analysis?.relevance ?? -1)),
 });
 
 const page = (overrides: Partial<DigestPage> = {}): DigestPage => ({
   runId: '2026-10-22' as RunId,
   generatedAt: new Date('2026-10-22T06:01:00Z'),
-  featured: [entry({})],
-  alsoNoted: [entry({ itemId: 'i-2', title: 'Minor fix', analysis: null, failure: 'x' })],
+  overview: null,
+  featured: [story([entry({})])],
+  alsoNoted: [story([entry({ itemId: 'i-2', title: 'Minor fix', analysis: null, failure: 'x' })])],
   failedSources: [],
   itemCount: 2,
   analyzedCount: 1,
@@ -31,7 +48,7 @@ const page = (overrides: Partial<DigestPage> = {}): DigestPage => ({
 });
 
 describe('renderDigestPage', () => {
-  it('renders the day, featured items with summaries and tags, and headlines', () => {
+  it('renders the day, featured stories with summaries and tags, and headlines', () => {
     const html = renderDigestPage(page(), { timezone: 'Europe/Berlin' });
 
     expect(html).toContain('<h1>Thursday, 22 October 2026</h1>');
@@ -44,30 +61,63 @@ describe('renderDigestPage', () => {
     expect(html).toContain('<li>gpu</li>');
     expect(html).toContain('<h2>Also noted</h2>');
     expect(html).toContain('1 item could not be summarised and is listed by title only.');
+    expect(html).not.toContain('class="overview"');
+  });
+
+  it('shows a merged story once, with its synthesised text and the other sources linked', () => {
+    const merged = story(
+      [
+        entry({}),
+        entry({
+          itemId: 'i-9',
+          sourceId: 's-2',
+          sourceName: '9to5Linux',
+          url: 'https://9to5linux.com/mesa',
+          analysis: { summary: 's', relevance: 0.5, reason: '', tags: ['graphics'] },
+        }),
+      ],
+      { headline: 'Mesa 26.3 brings faster Vulkan', summary: 'Both sources report the release.' },
+    );
+    const html = renderDigestPage(
+      page({ featured: [merged], overview: 'A big day for graphics.' }),
+      { timezone: 'UTC' },
+    );
+
+    expect(html).toContain('<section class="overview"><p>A big day for graphics.</p></section>');
+    expect(html).toContain('>Mesa 26.3 brings faster Vulkan</a>');
+    expect(html).toContain('<p>Both sources report the release.</p>');
+    expect(html).toContain(
+      'Also covered by <a href="https://9to5linux.com/mesa" rel="noopener noreferrer">9to5Linux</a>',
+    );
+    expect(html).toContain('<li>graphics</li>');
+    expect(html).toContain('from 2 sources · 1 highlighted · 1 covered by several sources');
   });
 
   it('escapes everything that comes from websites or the model', () => {
     const html = renderDigestPage(
       page({
+        overview: '<script>overview()</script>',
         featured: [
-          entry({
-            title: '<script>alert(1)</script>',
-            url: 'javascript:alert(1)',
-            sourceName: 'A & B',
-            analysis: {
-              summary: '"><img src=x onerror=alert(1)>',
-              relevance: 1,
-              reason: '',
-              tags: ['<b>'],
-            },
-          }),
+          story([
+            entry({
+              title: '<script>alert(1)</script>',
+              url: 'javascript:alert(1)',
+              sourceName: 'A & B',
+              analysis: {
+                summary: '"><img src=x onerror=alert(1)>',
+                relevance: 1,
+                reason: '',
+                tags: ['<b>'],
+              },
+            }),
+          ]),
         ],
         failedSources: [{ sourceId: 's', reason: '<i>HTTP 500</i>' }],
       }),
       { timezone: 'UTC' },
     );
 
-    expect(html).not.toContain('<script>alert');
+    expect(html).not.toContain('<script>');
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<b>');
     expect(html).not.toContain('<i>HTTP');

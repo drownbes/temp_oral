@@ -44,10 +44,18 @@ const EnvSchema = z
     // LLM: `stub` answers instantly with fake output, for local development without cost
     LLM_PROVIDER: z.enum(['openai', 'stub']).default('openai'),
     OPENAI_API_KEY: z.string().min(1).optional(),
+    // batch: Batch API, half price, results within 24h (production). direct: normal API, full
+    // price, results in seconds (testing). Batches already submitted finish either way.
+    OPENAI_API_MODE: z.enum(['batch', 'direct']).default('batch'),
+    OPENAI_DIRECT_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(8),
     OPENAI_ITEM_MODEL: z.string().min(1).default('gpt-6-luna'),
     // Reasoning models think before answering, billed as output tokens; summaries need little.
     // `omit` leaves the parameter out, for models that don't support it.
     OPENAI_REASONING_EFFORT: z.enum(['omit', 'none', 'low', 'medium', 'high']).default('low'),
+    // One request per multi-source story plus the overview: few calls, so a stronger model is cheap
+    OPENAI_SYNTHESIS_MODEL: z.string().min(1).default('gpt-6-luna'),
+    OPENAI_EMBEDDING_MODEL: z.string().min(1).default('text-embedding-3-small'),
+    OPENAI_EMBEDDING_DIMENSIONS: z.coerce.number().int().min(64).max(3072).default(512),
 
     // Daily digest
     DIGEST_CRON: z.string().min(1).default('0 6 * * *'),
@@ -57,6 +65,8 @@ const EnvSchema = z
     DIGEST_PUBLISH_KEY: z.string().min(1).default('digests/latest/index.html'),
     // Article text sent to the LLM per item; longer texts are cut
     DIGEST_MAX_ITEM_CHARS: z.coerce.number().int().positive().default(16_000),
+    // Cosine similarity at which two items count as the same story (embedding-model specific)
+    DIGEST_CLUSTER_THRESHOLD: z.coerce.number().min(0).max(1).default(0.63),
   })
   .superRefine((env, ctx) => {
     if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
@@ -106,9 +116,14 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
     llm: {
       provider: env.LLM_PROVIDER,
       openaiApiKey: env.OPENAI_API_KEY,
+      apiMode: env.OPENAI_API_MODE,
+      directConcurrency: env.OPENAI_DIRECT_CONCURRENCY,
       itemModel: env.OPENAI_ITEM_MODEL,
       reasoningEffort:
         env.OPENAI_REASONING_EFFORT === 'omit' ? undefined : env.OPENAI_REASONING_EFFORT,
+      synthesisModel: env.OPENAI_SYNTHESIS_MODEL,
+      embeddingModel: env.OPENAI_EMBEDDING_MODEL,
+      embeddingDimensions: env.OPENAI_EMBEDDING_DIMENSIONS,
     },
     digest: {
       cron: env.DIGEST_CRON,
@@ -116,6 +131,7 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       publishBucket: env.DIGEST_PUBLISH_BUCKET ?? env.S3_BUCKET,
       publishKey: env.DIGEST_PUBLISH_KEY,
       maxItemChars: env.DIGEST_MAX_ITEM_CHARS,
+      clusterThreshold: env.DIGEST_CLUSTER_THRESHOLD,
     },
   } as const;
 }

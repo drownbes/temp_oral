@@ -48,9 +48,23 @@ describe('digests repositories', () => {
       },
       now,
     );
-    d.enrichmentSubmitted('batch_1', now);
+    d.enrichmentSubmitted({ analysisBatchRef: 'batch_1', embeddingBatchRef: 'batch_2' }, now);
     d.completeEnrichment(
-      { analyzedCount: 1, failedItemCount: 1, usage: { inputTokens: 500, outputTokens: 80 } },
+      {
+        analyzedCount: 1,
+        failedItemCount: 1,
+        clusters: [{ id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null }],
+        usage: { inputTokens: 500, outputTokens: 80 },
+      },
+      now,
+    );
+    d.synthesisSubmitted('batch_3', now);
+    d.completeSynthesis(
+      {
+        stories: new Map([['i-1', { headline: 'Merged', summary: 'S' }]]),
+        overview: 'Overview',
+        usage: { inputTokens: 10, outputTokens: 5 },
+      },
       now,
     );
     d.publish(now);
@@ -86,12 +100,14 @@ describe('digests repositories', () => {
       publishedAt: now,
       analysis: null,
       failure: 'not analysed',
+      embedding: null,
     };
     await entries.saveAll([base, { ...base, itemId: 'item-2', publishedAt: null }]);
     const analysed = {
       ...base,
       analysis: { summary: 'S', relevance: 0.75, reason: 'R', tags: ['linux', 'gpu'] },
       failure: null,
+      embedding: [0.25, -0.5, 1],
     };
     await entries.saveAll([analysed]);
 

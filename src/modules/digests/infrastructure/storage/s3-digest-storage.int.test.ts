@@ -6,6 +6,7 @@ import { integrationConfig } from '#test/integration-env.ts';
 import type { RunId } from '../../domain/run-id.ts';
 import { S3DigestPublisher } from '../publishing/s3-digest-publisher.ts';
 import { S3ExportedItemsReader } from './s3-exported-items-reader.ts';
+import { S3LlmResultStore } from './s3-llm-result-store.ts';
 
 describe('digests S3 adapters', () => {
   let s3: S3Client;
@@ -52,6 +53,7 @@ describe('digests S3 adapters', () => {
     const location = await new S3DigestPublisher(s3, { bucket, key, timezone: 'UTC' }).publish({
       runId: '2026-10-21' as RunId,
       generatedAt: new Date('2026-10-21T06:00:00Z'),
+      overview: null,
       featured: [],
       alsoNoted: [],
       failedSources: [],
@@ -64,5 +66,20 @@ describe('digests S3 adapters', () => {
     const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
     expect(object.ContentType).toBe('text/html; charset=utf-8');
     expect(await object.Body?.transformToString()).toContain('Nothing new since the last digest.');
+  });
+});
+
+describe('S3LlmResultStore', () => {
+  it('stores direct-mode results and reports missing keys as undefined', async () => {
+    const config = integrationConfig();
+    const s3 = createS3Client(config);
+    const store = new S3LlmResultStore(s3, config.s3.bucket, `test/llm-${crypto.randomUUID()}/`);
+    try {
+      expect(await store.get('digest-1-analysis')).toBeUndefined();
+      await store.put('digest-1-analysis', '{"custom_id":"a"}\n{"custom_id":"b"}');
+      expect(await store.get('digest-1-analysis')).toBe('{"custom_id":"a"}\n{"custom_id":"b"}');
+    } finally {
+      s3.destroy();
+    }
   });
 });

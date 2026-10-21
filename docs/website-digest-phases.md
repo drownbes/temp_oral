@@ -299,6 +299,35 @@ without cost.
 
 **Goal:** merge items about the same story across sources and add an overview at the top.
 
+> **Status: done** (verified with the real OpenAI Batch API on 51 items from Phoronix,
+> 9to5Linux and LinuxGizmos). How the implementation differs from the plan below:
+> - **One item per source per story.** On real data, articles of the *same* source on the
+>   same topic (Linux 7.4 XFS vs. Btrfs updates, two e-paper kits) embed as close as, or
+>   closer than, the same story across sources (COSMIC 1.11 on Phoronix vs. 9to5Linux: 0.649).
+>   Restricting a story to one item per source removes those false merges; among cross-source
+>   pairs the data separated cleanly (true ≥ 0.649, false ≤ 0.619). The lead takes the
+>   *most similar* item of each other source.
+> - Threshold `DIGEST_CLUSTER_THRESHOLD` defaults to **0.63** (text-embedding-3-small at 512
+>   dimensions). The margin was thin on the first sample; revisit with more days of data
+>   (`GET /digests/:id` shows the stories; similarities can be recomputed from
+>   `digest_entry.embedding`).
+> - The two enrichment batches (analysis, embeddings) are submitted together and polled
+>   together; synthesis is a third batch (merged story texts + overview in one). With nothing
+>   to synthesise, it completes without a batch. A failed embeddings or synthesis batch
+>   degrades the page (no grouping / no overview) instead of failing the digest.
+> - Embedding input is the title plus the first 4,000 characters of text, 512 dimensions,
+>   stored as `real[]` on `digest_entry` (no pgvector yet).
+> - Clusters live in the digest (`clusters` jsonb, lead item first); the column `batch_ref`
+>   became `analysis_batch_ref` (migration `0004_add_stories`).
+> - Cost on the test: 51 items, three batches, about $0.0034 in total.
+> - **`OPENAI_API_MODE=batch|direct`.** A synthesis batch of 4 requests sat at 3/4 for 30+
+>   minutes, then hung in `cancelling`: batch latency is unpredictable. `direct` runs the same
+>   requests through the normal API (full price, `OPENAI_DIRECT_CONCURRENCY` at a time) and
+>   stores the results in S3 (`digests/llm-results/`) in the Batch API's output format, so the
+>   analyzers are unchanged and retries don't pay twice. Refs say which mode made them
+>   (`direct:` prefix), so switching modes never orphans a running batch. The same 51-item
+>   run took 38 seconds in direct mode (about $0.006). Default stays `batch` for production.
+
 - **Domain:**
   - `clustering.ts`: `cosineSimilarity`, greedy `clusterItems(items, threshold)` (seeded by
     relevance, deterministic tie-breaks) + tests.

@@ -1,5 +1,6 @@
 import type { DigestPage } from '../../application/ports.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
+import type { Story } from '../../domain/ranking.ts';
 
 export interface RenderOptions {
   /** Time zone for the times shown next to items. */
@@ -39,23 +40,27 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
     minute: '2-digit',
     timeZone: options.timezone,
   });
-  const sources = new Set([...page.featured, ...page.alsoNoted].map((e) => e.sourceId)).size;
+  const all = [...page.featured, ...page.alsoNoted];
+  const sources = new Set(all.flatMap((s) => s.entries.map((e) => e.sourceId))).size;
+  const merged = all.filter((s) => s.entries.length > 1).length;
 
   const meta =
     page.itemCount === 0
       ? 'Nothing new since the last digest.'
-      : `${page.itemCount} new ${plural(page.itemCount, 'item')} from ${sources} ${plural(sources, 'source')} · ${page.featured.length} highlighted`;
+      : `${page.itemCount} new ${plural(page.itemCount, 'item')} from ${sources} ${plural(sources, 'source')} · ${page.featured.length} highlighted` +
+        (merged > 0 ? ` · ${merged} covered by several sources` : '');
 
-  const featured = page.featured.map((entry) => {
-    const analysis = entry.analysis;
-    const tags = analysis?.tags.length
-      ? `<ul class="tags">${analysis.tags.map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`
+  const featured = page.featured.map((story) => {
+    const lead = story.entries[0] as DigestEntry;
+    const tags = [...new Set(story.entries.flatMap((e) => e.analysis?.tags ?? []))].slice(0, 5);
+    const tagList = tags.length
+      ? `<ul class="tags">${tags.map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`
       : '';
     return `<article>
-  <p class="source">${escapeHtml(entry.sourceName)}${publishedAt(entry, time)}</p>
-  <h2><a href="${safeHref(entry.url)}" rel="noopener noreferrer">${escapeHtml(entry.title)}</a></h2>
-  <p>${escapeHtml(analysis?.summary ?? '')}</p>
-  ${tags}
+  <p class="source">${escapeHtml(lead.sourceName)}${publishedAt(lead, time)}</p>
+  <h2>${link(lead.url, headline(story))}</h2>
+  <p>${escapeHtml(story.cluster.summary ?? lead.analysis?.summary ?? '')}</p>
+  ${alsoCovered(story)}${tagList}
 </article>`;
   });
 
@@ -63,12 +68,16 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
     ? `<section class="also">
   <h2>Also noted</h2>
   <ul>${page.alsoNoted
-    .map(
-      (entry) =>
-        `<li><a href="${safeHref(entry.url)}" rel="noopener noreferrer">${escapeHtml(entry.title)}</a> <span>${escapeHtml(entry.sourceName)}</span></li>`,
-    )
+    .map((story) => {
+      const lead = story.entries[0] as DigestEntry;
+      return `<li>${link(lead.url, headline(story))} <span>${story.entries.map((e) => escapeHtml(e.sourceName)).join(', ')}</span></li>`;
+    })
     .join('\n  ')}</ul>
 </section>`
+    : '';
+
+  const overview = page.overview
+    ? `<section class="overview"><p>${escapeHtml(page.overview)}</p></section>`
     : '';
 
   const notes = [
@@ -96,6 +105,7 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
   <h1>${escapeHtml(day)}</h1>
   <p class="meta">${meta}</p>
 </header>
+${overview}
 ${featured.join('\n')}
 ${alsoNoted}
 <footer>${notes.map((n) => `<p>${n}</p>`).join('')}</footer>
@@ -103,6 +113,22 @@ ${alsoNoted}
 </body>
 </html>
 `;
+}
+
+function headline(story: Story): string {
+  return story.cluster.headline ?? story.entries[0]?.title ?? '';
+}
+
+function link(url: string, text: string): string {
+  return `<a href="${safeHref(url)}" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+}
+
+/** The other sources of a merged story, each linking to its own article. */
+function alsoCovered(story: Story): string {
+  const others = story.entries.slice(1);
+  if (others.length === 0) return '';
+  return `<p class="covered">Also covered by ${others.map((e) => link(e.url, e.sourceName)).join(', ')}</p>
+  `;
 }
 
 function publishedAt(entry: DigestEntry, format: Intl.DateTimeFormat): string {
@@ -135,6 +161,9 @@ a { color: inherit; text-decoration-color: var(--line); text-underline-offset: .
 a:hover { color: var(--accent); text-decoration-color: currentColor; }
 .tags { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0 0; padding: 0; list-style: none; }
 .tags li { background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .8rem; color: var(--muted); }
+.overview { margin: 0 0 1rem; padding: 1rem 1.25rem; background: var(--chip); border-radius: .75rem; }
+.overview p { margin: 0; }
+.covered { font-size: .85rem; color: var(--muted); }
 .also { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
 .also h2 { font-size: 1rem; margin: 0 0 .75rem; }
 .also ul { margin: 0; padding: 0; list-style: none; }

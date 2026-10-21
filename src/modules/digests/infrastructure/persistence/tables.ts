@@ -1,5 +1,6 @@
 import type { ColumnType } from 'kysely';
 import type { DigestStatus, FailedSource } from '../../domain/digest.ts';
+import type { StoryCluster } from '../../domain/story.ts';
 
 export const DIGESTS_SCHEMA = 'digests';
 
@@ -12,7 +13,11 @@ export type DigestTable = {
   item_count: number;
   // jsonb: pg parses it on read, but must be given a JSON string on write
   failed_sources: ColumnType<FailedSource[], string, string>;
-  batch_ref: string | null;
+  analysis_batch_ref: string | null;
+  embedding_batch_ref: string | null;
+  synthesis_batch_ref: string | null;
+  clusters: ColumnType<StoryCluster[], string, string>;
+  overview: string | null;
   analyzed_count: number;
   failed_item_count: number;
   input_tokens: number;
@@ -36,6 +41,7 @@ export type DigestEntryTable = {
   reason: string | null;
   tags: string[] | null;
   failure: string | null;
+  embedding: number[] | null;
 };
 
 export type InterestProfileTable = {

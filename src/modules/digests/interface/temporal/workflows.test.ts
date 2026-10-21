@@ -45,6 +45,19 @@ function fakeDigest(options: {
     ingestEnrichment: async () => {
       calls.push('ingest');
       await options.ingest?.();
+      status = 'synthesizing';
+      return state();
+    },
+    submitSynthesis: async () => {
+      calls.push('synthesize');
+      return state();
+    },
+    checkSynthesis: async () => {
+      calls.push('check-synthesis');
+      return { done: true };
+    },
+    ingestSynthesis: async () => {
+      calls.push('ingest-synthesis');
       status = 'rendering';
       return state();
     },
@@ -139,6 +152,9 @@ describe('dailyDigestWorkflow', () => {
       'check',
       'check',
       'ingest',
+      'synthesize',
+      'check-synthesis',
+      'ingest-synthesis',
       'publish',
     ]);
     // Backs off through the intervals, then keeps repeating the last one
@@ -163,7 +179,16 @@ describe('dailyDigestWorkflow', () => {
 
     await result;
     expect(collectedRuns).toEqual([]);
-    expect(digest.calls).toEqual(['begin:2026-10-21', 'submit', 'check', 'ingest', 'publish']);
+    expect(digest.calls).toEqual([
+      'begin:2026-10-21',
+      'submit',
+      'check',
+      'ingest',
+      'synthesize',
+      'check-synthesis',
+      'ingest-synthesis',
+      'publish',
+    ]);
   });
 
   it('does nothing for a digest that is already published', async () => {

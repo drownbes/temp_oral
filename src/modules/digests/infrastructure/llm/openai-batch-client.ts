@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 import { toFile } from 'openai';
 import type { Batch, BatchCreateParams } from 'openai/resources/batches';
+import type { BatchState } from '../../application/ports.ts';
 
 export interface BatchRequest {
   readonly customId: string;
@@ -85,7 +86,7 @@ export class OpenAiBatchClient implements BatchClient {
     for (const fileId of files) {
       const content = await (await this.#openai.files.content(fileId)).text();
       for (const line of content.split('\n')) {
-        if (line.trim()) lines.push(parseLine(line));
+        if (line.trim()) lines.push(parseResultLine(line));
       }
     }
     return lines;
@@ -103,7 +104,8 @@ interface RawLine {
   error?: { code?: string; message?: string } | null;
 }
 
-function parseLine(line: string): BatchResultLine {
+/** Parses one line of a batch output or error file. */
+export function parseResultLine(line: string): BatchResultLine {
   const raw = JSON.parse(line) as RawLine;
   const statusCode = raw.response?.status_code ?? null;
   const body = raw.response?.body ?? null;
@@ -113,4 +115,23 @@ function parseLine(line: string): BatchResultLine {
     bodyError ??
     (statusCode !== null && statusCode >= 400 ? `HTTP ${statusCode}` : null);
   return { customId: raw.custom_id, statusCode, body, error };
+}
+
+/** OpenAI batch status → what the use cases need to know. */
+export function toBatchState(batch: Batch): BatchState {
+  switch (batch.status) {
+    case 'completed':
+      return { state: 'completed' };
+    case 'expired':
+      return { state: 'incomplete', reason: 'batch expired before finishing' };
+    case 'cancelled':
+      return { state: 'incomplete', reason: 'batch was cancelled' };
+    case 'failed': {
+      const errors = batch.errors?.data?.map((e) => e.message).filter(Boolean) ?? [];
+      return { state: 'failed', reason: errors.join('; ') || 'batch failed' };
+    }
+    default:
+      // validating, in_progress, finalizing, cancelling
+      return { state: 'pending' };
+  }
 }

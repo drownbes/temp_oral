@@ -7,6 +7,7 @@ import type {
   InterestProfileRepository,
 } from '../../domain/repositories.ts';
 import type { RunId } from '../../domain/run-id.ts';
+import type { StoryText } from '../../domain/story.ts';
 import type {
   AnalysisRequest,
   AnalysisResults,
@@ -15,8 +16,14 @@ import type {
   DigestPage,
   DigestPublisher,
   DigestRunStarter,
+  DigestSynthesizer,
+  EmbeddingRequest,
+  EmbeddingResults,
   ExportedItemsReader,
   ItemAnalyzer,
+  ItemEmbedder,
+  SynthesisRequest,
+  SynthesisResults,
 } from '../ports.ts';
 
 /** In-memory adapters for testing use cases without infrastructure. */
@@ -142,6 +149,87 @@ export class FakeItemAnalyzer implements ItemAnalyzer {
       }
     }
     return { analyses, failures, usage: { inputTokens: 100 * processed.length, outputTokens: 10 } };
+  }
+}
+
+/** Fake batches: pending until `finish`, keyed like the real ones (`batch-<key>`). */
+class FakeBatches<R> {
+  readonly submitted: R[] = [];
+  readonly batches = new Map<string, { request: R; state: BatchState }>();
+
+  submit(key: string, request: R): string {
+    const ref = `batch-${key}`;
+    if (!this.batches.has(ref)) {
+      this.submitted.push(request);
+      this.batches.set(ref, { request, state: { state: 'pending' } });
+    }
+    return ref;
+  }
+
+  get(ref: string) {
+    const batch = this.batches.get(ref);
+    if (!batch) throw new Error(`no batch ${ref}`);
+    return batch;
+  }
+
+  /** Finishes every batch whose key contains `keyPart`. */
+  finish(keyPart: string, state: BatchState = { state: 'completed' }): void {
+    for (const [ref, batch] of this.batches) if (ref.includes(keyPart)) batch.state = state;
+  }
+}
+
+/**
+ * Items get the vector set in `vectors`, or a vector of their own (orthogonal to all
+ * others), so by default nothing clusters.
+ */
+export class FakeItemEmbedder implements ItemEmbedder {
+  readonly fake = new FakeBatches<EmbeddingRequest>();
+  readonly vectors = new Map<string, number[]>();
+
+  async submit(request: EmbeddingRequest): Promise<string> {
+    return this.fake.submit(request.key, request);
+  }
+
+  async status(ref: string): Promise<BatchState> {
+    return this.fake.get(ref).state;
+  }
+
+  async results(ref: string): Promise<EmbeddingResults> {
+    const { request } = this.fake.get(ref);
+    const embeddings = new Map<string, readonly number[]>();
+    request.items.forEach((item, i) => {
+      const unique = Array.from({ length: request.items.length }, (_, j) => (i === j ? 1 : 0));
+      embeddings.set(item.itemId, this.vectors.get(item.itemId) ?? unique);
+    });
+    return { embeddings, usage: { inputTokens: 5 * request.items.length, outputTokens: 0 } };
+  }
+}
+
+/** Merged headline "Merged: <first title>", overview listing the highlight titles. */
+export class FakeDigestSynthesizer implements DigestSynthesizer {
+  readonly fake = new FakeBatches<SynthesisRequest>();
+
+  async submit(request: SynthesisRequest): Promise<string> {
+    return this.fake.submit(request.key, request);
+  }
+
+  async status(ref: string): Promise<BatchState> {
+    return this.fake.get(ref).state;
+  }
+
+  async results(ref: string): Promise<SynthesisResults> {
+    const { request } = this.fake.get(ref);
+    const stories = new Map<string, StoryText>();
+    for (const story of request.stories) {
+      stories.set(story.clusterId, {
+        headline: `Merged: ${story.items[0]?.title}`,
+        summary: story.items.map((i) => i.sourceName).join(' + '),
+      });
+    }
+    const overview = request.highlights.length
+      ? `Overview of ${request.highlights.map((h) => h.title).join(', ')}`
+      : null;
+    return { stories, overview, usage: { inputTokens: 50, outputTokens: 20 } };
   }
 }
 

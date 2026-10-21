@@ -3,17 +3,27 @@ import type { ModuleDefinition, ModuleDeps } from '#shared/infrastructure/module
 import { systemClock } from '#shared/kernel/clock.ts';
 import { BeginDigest } from './application/begin-digest.ts';
 import { CheckEnrichment } from './application/check-enrichment.ts';
+import { CheckSynthesis } from './application/check-synthesis.ts';
 import { IngestEnrichment } from './application/ingest-enrichment.ts';
+import { IngestSynthesis } from './application/ingest-synthesis.ts';
 import { GetInterestProfile, UpdateInterestProfile } from './application/interest-profile.ts';
 import { MarkDigestFailed } from './application/mark-digest-failed.ts';
-import type { ItemAnalyzer } from './application/ports.ts';
+import type { DigestSynthesizer, ItemAnalyzer, ItemEmbedder } from './application/ports.ts';
 import { PublishDigest } from './application/publish-digest.ts';
 import { RecordCollection } from './application/record-collection.ts';
 import { StartDigestRun } from './application/start-digest-run.ts';
 import { SubmitEnrichment } from './application/submit-enrichment.ts';
+import { SubmitSynthesis } from './application/submit-synthesis.ts';
 import { GetDigest, ListDigests } from './application/view-digests.ts';
 import { OpenAiBatchClient } from './infrastructure/llm/openai-batch-client.ts';
+import { OpenAiDigestSynthesizer } from './infrastructure/llm/openai-digest-synthesizer.ts';
+import {
+  DirectBatchClient,
+  RoutingBatchClient,
+} from './infrastructure/llm/openai-direct-client.ts';
 import { OpenAiItemAnalyzer } from './infrastructure/llm/openai-item-analyzer.ts';
+import { OpenAiItemEmbedder } from './infrastructure/llm/openai-item-embedder.ts';
+import { StubDigestSynthesizer, StubItemEmbedder } from './infrastructure/llm/stub-enrichment.ts';
 import { StubItemAnalyzer } from './infrastructure/llm/stub-item-analyzer.ts';
 import { KyselyDigestEntryRepository } from './infrastructure/persistence/kysely-digest-entry-repository.ts';
 import { KyselyDigestRepository } from './infrastructure/persistence/kysely-digest-repository.ts';
@@ -21,6 +31,7 @@ import { KyselyInterestProfileRepository } from './infrastructure/persistence/ky
 import { DIGESTS_SCHEMA, type DigestsTables } from './infrastructure/persistence/tables.ts';
 import { S3DigestPublisher } from './infrastructure/publishing/s3-digest-publisher.ts';
 import { S3ExportedItemsReader } from './infrastructure/storage/s3-exported-items-reader.ts';
+import { S3LlmResultStore } from './infrastructure/storage/s3-llm-result-store.ts';
 import { TemporalDigestRunStarter } from './infrastructure/temporal/temporal-digest-run-starter.ts';
 import { digestRoutes } from './interface/http/routes.ts';
 import { createDigestActivities } from './interface/temporal/activities.ts';
@@ -45,14 +56,42 @@ function adapters(deps: ModuleDeps) {
   };
 }
 
-function itemAnalyzer(deps: ModuleDeps): ItemAnalyzer {
-  if (deps.config.llm.provider === 'stub') return new StubItemAnalyzer();
+/** The three LLM roles, all stubs or all OpenAI (one Batch API client). */
+function llm(deps: ModuleDeps): {
+  analyzer: ItemAnalyzer;
+  embedder: ItemEmbedder;
+  synthesizer: DigestSynthesizer;
+} {
+  if (deps.config.llm.provider === 'stub') {
+    return {
+      analyzer: new StubItemAnalyzer(),
+      embedder: new StubItemEmbedder(),
+      synthesizer: new StubDigestSynthesizer(),
+    };
+  }
   if (!deps.openai) throw new Error('LLM_PROVIDER=openai but no OpenAI client was created');
-  const { itemModel, reasoningEffort } = deps.config.llm;
-  return new OpenAiItemAnalyzer(new OpenAiBatchClient(deps.openai), {
-    model: itemModel,
-    reasoningEffort,
-  });
+  const config = deps.config.llm;
+  const batches = new RoutingBatchClient(
+    config.apiMode,
+    new OpenAiBatchClient(deps.openai),
+    new DirectBatchClient(deps.openai, new S3LlmResultStore(deps.s3, deps.config.s3.bucket), {
+      concurrency: config.directConcurrency,
+    }),
+  );
+  return {
+    analyzer: new OpenAiItemAnalyzer(batches, {
+      model: config.itemModel,
+      reasoningEffort: config.reasoningEffort,
+    }),
+    embedder: new OpenAiItemEmbedder(batches, {
+      model: config.embeddingModel,
+      dimensions: config.embeddingDimensions,
+    }),
+    synthesizer: new OpenAiDigestSynthesizer(batches, {
+      model: config.synthesisModel,
+      reasoningEffort: config.reasoningEffort,
+    }),
+  };
 }
 
 export const digestsModule: ModuleDefinition = {
@@ -80,7 +119,7 @@ export const digestsModule: ModuleDefinition = {
     const { digest: config } = deps.config;
     // The export belongs to the shared bucket, whatever bucket the page is published to
     const reader = new S3ExportedItemsReader(deps.s3, deps.config.s3.bucket);
-    const analyzer = itemAnalyzer(deps);
+    const { analyzer, embedder, synthesizer } = llm(deps);
     const publisher = new S3DigestPublisher(deps.s3, {
       bucket: config.publishBucket,
       key: config.publishKey,
@@ -97,11 +136,23 @@ export const digestsModule: ModuleDefinition = {
           profiles,
           reader,
           analyzer,
+          embedder,
           clock,
           maxItemChars: config.maxItemChars,
         }),
-        checkEnrichment: new CheckEnrichment({ digests, analyzer }),
-        ingestEnrichment: new IngestEnrichment({ digests, entries, reader, analyzer, clock }),
+        checkEnrichment: new CheckEnrichment({ digests, analyzer, embedder }),
+        ingestEnrichment: new IngestEnrichment({
+          digests,
+          entries,
+          reader,
+          analyzer,
+          embedder,
+          clock,
+          clusterThreshold: config.clusterThreshold,
+        }),
+        submitSynthesis: new SubmitSynthesis({ digests, entries, profiles, synthesizer, clock }),
+        checkSynthesis: new CheckSynthesis({ digests, synthesizer }),
+        ingestSynthesis: new IngestSynthesis({ digests, synthesizer, clock }),
         publishDigest: new PublishDigest({ digests, entries, profiles, publisher, clock }),
         markDigestFailed: new MarkDigestFailed({ digests, clock }),
       }),

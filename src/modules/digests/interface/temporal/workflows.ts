@@ -20,13 +20,20 @@ import { BATCH_POLL_INTERVALS, type DailyDigestInput, pollDelay } from './defini
 const {
   beginDigest,
   recordCollection,
-  submitEnrichment,
   checkEnrichment,
   ingestEnrichment,
+  checkSynthesis,
+  ingestSynthesis,
   publishDigest,
 } = proxyActivities<DigestActivities>({
   startToCloseTimeout: '2 minutes',
   retry: { maximumAttempts: 5, initialInterval: '10 seconds' },
+});
+
+// Submitting uploads a batch, or in direct mode runs every request right away: allow minutes
+const { submitEnrichment, submitSynthesis } = proxyActivities<DigestActivities>({
+  startToCloseTimeout: '15 minutes',
+  retry: { maximumAttempts: 3, initialInterval: '30 seconds' },
 });
 
 const { markDigestFailed } = proxyActivities<DigestActivities>({
@@ -66,12 +73,17 @@ export async function dailyDigestWorkflow(input: DailyDigestInput): Promise<Dige
           break;
         }
         case 'enriching': {
-          state = await submitEnrichment(state.digestId);
-          const intervals = input.pollIntervals ?? BATCH_POLL_INTERVALS;
-          for (let attempt = 0; !(await checkEnrichment(state.digestId)).done; attempt++) {
-            await sleep(pollDelay(intervals, attempt));
-          }
-          state = await ingestEnrichment(state.digestId);
+          const { digestId } = state;
+          state = await submitEnrichment(digestId);
+          await waitUntilDone(() => checkEnrichment(digestId), input.pollIntervals);
+          state = await ingestEnrichment(digestId);
+          break;
+        }
+        case 'synthesizing': {
+          const { digestId } = state;
+          state = await submitSynthesis(digestId);
+          await waitUntilDone(() => checkSynthesis(digestId), input.pollIntervals);
+          state = await ingestSynthesis(digestId);
           break;
         }
         case 'rendering':
@@ -95,6 +107,16 @@ export async function dailyDigestWorkflow(input: DailyDigestInput): Promise<Dige
     status: state.status,
   });
   return state;
+}
+
+/** Polls an LLM batch with backoff (durable timers) until it has finished one way or another. */
+async function waitUntilDone(
+  check: () => Promise<{ done: boolean }>,
+  intervals: readonly string[] = BATCH_POLL_INTERVALS,
+): Promise<void> {
+  for (let attempt = 0; !(await check()).done; attempt++) {
+    await sleep(pollDelay(intervals, attempt));
+  }
 }
 
 /** Activity and child workflow failures wrap the original error; report that one. */

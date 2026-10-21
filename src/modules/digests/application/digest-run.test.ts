@@ -3,7 +3,9 @@ import type { DigestId } from '../domain/digest.ts';
 import { EnrichmentFailedError } from '../domain/errors.ts';
 import { BeginDigest } from './begin-digest.ts';
 import { CheckEnrichment } from './check-enrichment.ts';
+import { CheckSynthesis } from './check-synthesis.ts';
 import { IngestEnrichment } from './ingest-enrichment.ts';
+import { IngestSynthesis } from './ingest-synthesis.ts';
 import { UpdateInterestProfile } from './interest-profile.ts';
 import { MarkDigestFailed } from './mark-digest-failed.ts';
 import type { CollectedItem } from './ports.ts';
@@ -11,8 +13,11 @@ import { PublishDigest } from './publish-digest.ts';
 import { RecordCollection } from './record-collection.ts';
 import { StartDigestRun } from './start-digest-run.ts';
 import { SubmitEnrichment } from './submit-enrichment.ts';
+import { SubmitSynthesis } from './submit-synthesis.ts';
 import {
+  FakeDigestSynthesizer,
   FakeItemAnalyzer,
+  FakeItemEmbedder,
   InMemoryDigestEntryRepository,
   InMemoryDigestRepository,
   InMemoryExportedItemsReader,
@@ -23,10 +28,14 @@ import {
 } from './testing/fakes.ts';
 
 const OWNER = 'default';
-const item = (itemId: string, text = `Text of ${itemId}`): CollectedItem => ({
+const item = (
+  itemId: string,
+  sourceName = 'Phoronix',
+  text = `Text of ${itemId}`,
+): CollectedItem => ({
   itemId,
-  sourceId: 's-1',
-  sourceName: 'Phoronix',
+  sourceId: `src-${sourceName}`,
+  sourceName,
   url: `https://example.com/${itemId}`,
   title: `Title ${itemId}`,
   publishedAt: new Date('2026-10-20T10:00:00Z'),
@@ -39,6 +48,8 @@ describe('a digest run', () => {
   let profiles: InMemoryInterestProfileRepository;
   let reader: InMemoryExportedItemsReader;
   let analyzer: FakeItemAnalyzer;
+  let embedder: FakeItemEmbedder;
+  let synthesizer: FakeDigestSynthesizer;
   let publisher: RecordingPublisher;
   let clock: ReturnType<typeof mutableClock>;
 
@@ -48,127 +59,208 @@ describe('a digest run', () => {
     profiles = new InMemoryInterestProfileRepository();
     reader = new InMemoryExportedItemsReader();
     analyzer = new FakeItemAnalyzer();
+    embedder = new FakeItemEmbedder();
+    synthesizer = new FakeDigestSynthesizer();
     publisher = new RecordingPublisher();
     clock = mutableClock();
   });
 
-  const useCases = () => ({
+  const steps = () => ({
     begin: new BeginDigest({ digests, clock, timezone: 'Europe/Berlin' }),
     record: new RecordCollection({ digests, clock }),
-    submit: new SubmitEnrichment({ digests, profiles, reader, analyzer, clock, maxItemChars: 10 }),
-    check: new CheckEnrichment({ digests, analyzer }),
-    ingest: new IngestEnrichment({ digests, entries, reader, analyzer, clock }),
+    submit: new SubmitEnrichment({
+      digests,
+      profiles,
+      reader,
+      analyzer,
+      embedder,
+      clock,
+      maxItemChars: 10,
+    }),
+    check: new CheckEnrichment({ digests, analyzer, embedder }),
+    ingest: new IngestEnrichment({
+      digests,
+      entries,
+      reader,
+      analyzer,
+      embedder,
+      clock,
+      clusterThreshold: 0.9,
+    }),
+    submitSynthesis: new SubmitSynthesis({ digests, entries, profiles, synthesizer, clock }),
+    checkSynthesis: new CheckSynthesis({ digests, synthesizer }),
+    ingestSynthesis: new IngestSynthesis({ digests, synthesizer, clock }),
     publish: new PublishDigest({ digests, entries, profiles, publisher, clock }),
   });
 
-  /** Runs the steps the workflow runs, finishing the batch with `batchState`. */
-  async function runDigest(runId: string, items: CollectedItem[], finish = true) {
-    const u = useCases();
+  /** Collects `items` and submits enrichment; batches stay pending. */
+  async function startDigest(runId: string, items: CollectedItem[]) {
+    const s = steps();
     const exportKey = `sources/exports/${runId}.jsonl`;
     reader.exports.set(exportKey, items);
-    const { digestId } = await u.begin.execute({ ownerId: OWNER, runId, startedAt: '' });
+    const { digestId } = await s.begin.execute({ ownerId: OWNER, runId, startedAt: '' });
     const id = digestId as DigestId;
-    await u.record.execute(id, { exportKey, itemCount: items.length, failedSources: [] });
-    await u.submit.execute(id);
-    if (finish && items.length > 0) analyzer.finish(`batch-digest-${id}-enrichment`);
-    return { id, u };
+    await s.record.execute(id, { exportKey, itemCount: items.length, failedSources: [] });
+    await s.submit.execute(id);
+    return { id, s };
   }
 
-  it('collects, analyses, ranks by the profile and publishes', async () => {
+  /** Runs every remaining step with batches completing immediately. */
+  async function finishDigest(id: DigestId) {
+    const s = steps();
+    analyzer.finish(`batch-digest-${id}-analysis`);
+    embedder.fake.finish(id);
+    await s.ingest.execute(id);
+    await s.submitSynthesis.execute(id);
+    synthesizer.fake.finish(id);
+    await s.ingestSynthesis.execute(id);
+    return s.publish.execute(id);
+  }
+
+  it('analyses, groups coverage of one story, synthesises and publishes', async () => {
     await new UpdateInterestProfile({ profiles, clock }).execute(OWNER, {
-      interests: 'Linux graphics',
+      interests: 'Linux desktops',
       relevanceThreshold: 0.6,
     });
     analyzer.relevance.set('a', 0.9);
-    analyzer.relevance.set('b', 0.3);
-    analyzer.failures.set('c', 'model refused');
+    analyzer.relevance.set('b', 0.7);
+    analyzer.relevance.set('c', 0.3);
+    analyzer.failures.set('d', 'model refused');
+    // a and b are the same story; c and d have vectors of their own
+    embedder.vectors.set('a', [1, 0, 0]);
+    embedder.vectors.set('b', [0.99, 0.1, 0]);
 
-    const { id, u } = await runDigest(
-      '2026-10-21',
-      [item('a', 'x'.repeat(50)), item('b'), item('c')],
-      false,
-    );
-    expect(await u.check.execute(id)).toEqual({ done: false });
-    analyzer.finish(`batch-digest-${id}-enrichment`);
-    expect(await u.check.execute(id)).toEqual({ done: true });
-    await u.ingest.execute(id);
-    expect(await u.publish.execute(id)).toMatchObject({ status: 'published' });
+    const items = [
+      item('a', 'Phoronix', 'x'.repeat(50)),
+      item('b', '9to5Linux'),
+      item('c'),
+      item('d'),
+    ];
+    const { id, s } = await startDigest('2026-10-21', items);
 
-    const [request] = analyzer.submitted;
-    expect(request?.interests).toBe('Linux graphics');
-    expect(request?.items[0]?.text).toBe(`${'x'.repeat(10)}…`);
+    // Both enrichment batches must finish before ingesting
+    expect(await s.check.execute(id)).toEqual({ done: false });
+    analyzer.finish(`batch-digest-${id}-analysis`);
+    expect(await s.check.execute(id)).toEqual({ done: false });
+    embedder.fake.finish(id);
+    expect(await s.check.execute(id)).toEqual({ done: true });
 
+    expect(await s.ingest.execute(id)).toMatchObject({ status: 'synthesizing' });
+    expect(digests.rows.get(id)?.clusters.map((c) => c.itemIds)).toEqual([
+      ['a', 'b'],
+      ['c'],
+      ['d'],
+    ]);
+
+    await s.submitSynthesis.execute(id);
+    const [synthesis] = synthesizer.fake.submitted;
+    expect(synthesis?.interests).toBe('Linux desktops');
+    expect(synthesis?.stories.map((st) => st.clusterId)).toEqual(['a']);
+    expect(synthesis?.stories[0]?.items.map((i) => i.sourceName)).toEqual([
+      'Phoronix',
+      '9to5Linux',
+    ]);
+    expect(synthesis?.highlights.map((h) => h.title)).toEqual(['Title a']);
+    expect(await s.checkSynthesis.execute(id)).toEqual({ done: false });
+    synthesizer.fake.finish(id);
+    await s.ingestSynthesis.execute(id);
+    expect(await s.publish.execute(id)).toMatchObject({ status: 'published' });
+
+    expect(analyzer.submitted[0]?.items[0]?.text).toBe(`${'x'.repeat(10)}…`);
     const [page] = publisher.pages;
-    expect(page?.featured.map((e) => e.itemId)).toEqual(['a']);
-    expect(page?.alsoNoted.map((e) => e.itemId).sort()).toEqual(['b', 'c']);
-    expect(page?.alsoNoted.find((e) => e.itemId === 'c')?.failure).toBe('model refused');
+    expect(page?.overview).toBe('Overview of Title a');
+    expect(
+      page?.featured.map((st) => [st.cluster.headline, st.entries.map((e) => e.itemId)]),
+    ).toEqual([['Merged: Title a', ['a', 'b']]]);
+    expect(page?.alsoNoted.map((st) => st.cluster.id).sort()).toEqual(['c', 'd']);
     expect(digests.rows.get(id)).toMatchObject({
-      analyzedCount: 2,
+      analyzedCount: 3,
       failedItemCount: 1,
-      usage: { inputTokens: 300, outputTokens: 10 },
+      // analysis 4×100 + embeddings 4×5 + synthesis 50 in; analysis 10 + synthesis 20 out
+      usage: { inputTokens: 470, outputTokens: 30 },
     });
   });
 
-  it('is idempotent at every step and submits one batch per digest', async () => {
-    const { id, u } = await runDigest('2026-10-21', [item('a')]);
-    await u.submit.execute(id);
-    await u.record.execute(id, { exportKey: 'other', itemCount: 99, failedSources: [] });
-    await u.ingest.execute(id);
-    await u.ingest.execute(id);
-    await u.publish.execute(id);
-    await u.publish.execute(id);
+  it('is idempotent at every step and submits each batch once', async () => {
+    const { id, s } = await startDigest('2026-10-21', [item('a')]);
+    await s.submit.execute(id);
+    await s.record.execute(id, { exportKey: 'other', itemCount: 99, failedSources: [] });
+    await finishDigest(id);
+    await s.ingest.execute(id);
+    await s.submitSynthesis.execute(id);
+    await s.ingestSynthesis.execute(id);
+    await s.publish.execute(id);
 
     expect(analyzer.submitted).toHaveLength(1);
+    expect(embedder.fake.submitted).toHaveLength(1);
+    expect(synthesizer.fake.submitted).toHaveLength(1);
     expect(publisher.pages).toHaveLength(1);
     expect(digests.rows.get(id)?.itemCount).toBe(1);
-    expect(entries.rows.size).toBe(1);
-    expect(
-      (await u.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' })).digestId,
-    ).toBe(id);
+    const again = await s.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' });
+    expect(again.digestId).toBe(id);
   });
 
   it('publishes an all-quiet page without calling the LLM when nothing is new', async () => {
-    const { id, u } = await runDigest('2026-10-21', []);
-    expect(await u.publish.execute(id)).toMatchObject({ status: 'published' });
+    const { id, s } = await startDigest('2026-10-21', []);
+    expect(await s.publish.execute(id)).toMatchObject({ status: 'published' });
     expect(analyzer.submitted).toEqual([]);
+    expect(embedder.fake.submitted).toEqual([]);
     expect(publisher.pages[0]).toMatchObject({ itemCount: 0, featured: [], alsoNoted: [] });
   });
 
-  it('keeps the items an expired batch did not get to, marked as such', async () => {
-    const { id, u } = await runDigest('2026-10-21', [item('a'), item('b')], false);
-    analyzer.finish(`batch-digest-${id}-enrichment`, {
+  it('skips the synthesis batch when there is nothing to merge or summarise', async () => {
+    analyzer.failures.set('a', 'model refused');
+    const { id } = await startDigest('2026-10-21', [item('a')]);
+    analyzer.finish(`batch-digest-${id}-analysis`);
+    embedder.fake.finish(id);
+    const s = steps();
+    await s.ingest.execute(id);
+
+    expect(await s.submitSynthesis.execute(id)).toMatchObject({ status: 'rendering' });
+    expect(synthesizer.fake.submitted).toEqual([]);
+  });
+
+  it('degrades instead of failing: expired analysis, failed embeddings, failed synthesis', async () => {
+    embedder.vectors.set('a', [1, 0]);
+    embedder.vectors.set('b', [1, 0]);
+    const { id, s } = await startDigest('2026-10-21', [item('a'), item('b')]);
+    analyzer.finish(`batch-digest-${id}-analysis`, {
       state: 'incomplete',
       reason: 'batch expired',
     });
-    await u.ingest.execute(id);
+    embedder.fake.finish(id, { state: 'failed', reason: 'quota' });
+    await s.ingest.execute(id);
 
+    // The fake analyses only the first item of an incomplete batch; no embeddings → no grouping
     expect(digests.rows.get(id)).toMatchObject({ analyzedCount: 1, failedItemCount: 1 });
     expect(entries.rows.get(`${id}/b`)?.failure).toBe('batch expired');
+    expect(digests.rows.get(id)?.clusters).toHaveLength(2);
+
+    await s.submitSynthesis.execute(id);
+    synthesizer.fake.finish(id, { state: 'failed', reason: 'bad request' });
+    await s.ingestSynthesis.execute(id);
+    expect(await s.publish.execute(id)).toMatchObject({ status: 'published' });
+    expect(publisher.pages[0]?.overview).toBeNull();
   });
 
-  it('fails the digest when the batch is rejected, and restarts it on the next begin', async () => {
-    const { id, u } = await runDigest('2026-10-21', [item('a')], false);
-    analyzer.finish(`batch-digest-${id}-enrichment`, {
-      state: 'failed',
-      reason: 'model not found',
-    });
-    await expect(u.ingest.execute(id)).rejects.toThrow(EnrichmentFailedError);
+  it('fails the digest when the analysis batch is rejected, and restarts it on the next begin', async () => {
+    const { id, s } = await startDigest('2026-10-21', [item('a')]);
+    analyzer.finish(`batch-digest-${id}-analysis`, { state: 'failed', reason: 'model not found' });
+    embedder.fake.finish(id);
+    await expect(s.ingest.execute(id)).rejects.toThrow(EnrichmentFailedError);
     await new MarkDigestFailed({ digests, clock }).execute(id, 'model not found');
     expect(digests.rows.get(id)?.status).toBe('failed');
 
-    const again = await u.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' });
+    const again = await s.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' });
     expect(again).toEqual({ digestId: id, runId: '2026-10-21', status: 'collecting' });
   });
 
   it('does not let a late digest overwrite a newer published day', async () => {
-    const late = await runDigest('2026-10-21', [item('a')], false);
-    const newer = await runDigest('2026-10-22', [item('b')]);
-    await newer.u.ingest.execute(newer.id);
-    await newer.u.publish.execute(newer.id);
+    const late = await startDigest('2026-10-21', [item('a')]);
+    const newer = await startDigest('2026-10-22', [item('b')]);
+    await finishDigest(newer.id);
 
-    analyzer.finish(`batch-digest-${late.id}-enrichment`);
-    await late.u.ingest.execute(late.id);
-    expect(await late.u.publish.execute(late.id)).toMatchObject({ status: 'superseded' });
+    expect(await finishDigest(late.id)).toMatchObject({ status: 'superseded' });
     expect(publisher.pages.map((p) => p.runId)).toEqual(['2026-10-22']);
   });
 

@@ -27,6 +27,7 @@ export class KyselyDigestEntryRepository implements DigestEntryRepository {
           reason: eb.ref('excluded.reason'),
           tags: eb.ref('excluded.tags'),
           failure: eb.ref('excluded.failure'),
+          embedding: eb.ref('excluded.embedding'),
         })),
       )
       .execute();
@@ -62,6 +63,7 @@ function toDomain(row: Selectable<DigestEntryTable>): DigestEntry {
           }
         : null,
     failure: row.failure,
+    embedding: row.embedding,
   };
 }
 
@@ -79,5 +81,6 @@ function toRow(entry: DigestEntry): DigestEntryTable {
     reason: entry.analysis?.reason ?? null,
     tags: entry.analysis ? [...entry.analysis.tags] : null,
     failure: entry.failure,
+    embedding: entry.embedding ? [...entry.embedding] : null,
   };
 }

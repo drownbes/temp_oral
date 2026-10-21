@@ -11,16 +11,30 @@ const collection = (itemCount: number) => ({
   itemCount,
   failedSources: [{ sourceId: 's-9', reason: 'HTTP 404' }],
 });
+const refs = { analysisBatchRef: 'batch_a', embeddingBatchRef: 'batch_e' };
 const usage = { inputTokens: 1000, outputTokens: 200 };
+const cluster = { id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null };
+const enrichment = { analyzedCount: 2, failedItemCount: 1, clusters: [cluster], usage };
 
 describe('Digest', () => {
-  it('goes collecting → enriching → rendering → published', () => {
+  it('goes collecting → enriching → synthesizing → rendering → published', () => {
     const digest = begin();
     digest.recordCollection(collection(3), now);
     expect(digest.status).toBe('enriching');
 
-    digest.enrichmentSubmitted('batch_1', now);
-    digest.completeEnrichment({ analyzedCount: 2, failedItemCount: 1, usage }, now);
+    digest.enrichmentSubmitted(refs, now);
+    digest.completeEnrichment(enrichment, now);
+    expect(digest.status).toBe('synthesizing');
+
+    digest.synthesisSubmitted('batch_s', now);
+    digest.completeSynthesis(
+      {
+        stories: new Map([['i-1', { headline: 'Merged', summary: 'Both say so.' }]]),
+        overview: '  A quiet day.  ',
+        usage: { inputTokens: 50, outputTokens: 20 },
+      },
+      now,
+    );
     expect(digest.status).toBe('rendering');
 
     digest.publish(now);
@@ -28,11 +42,13 @@ describe('Digest', () => {
       status: 'published',
       publishedAt: now,
       itemCount: 3,
-      batchRef: 'batch_1',
+      ...refs,
+      synthesisBatchRef: 'batch_s',
       analyzedCount: 2,
       failedItemCount: 1,
-      usage,
-      failedSources: [{ sourceId: 's-9', reason: 'HTTP 404' }],
+      clusters: [{ ...cluster, headline: 'Merged', summary: 'Both say so.' }],
+      overview: 'A quiet day.',
+      usage: { inputTokens: 1050, outputTokens: 220 },
     });
     expect(digest.isFinished).toBe(true);
   });
@@ -43,14 +59,25 @@ describe('Digest', () => {
     expect(digest.status).toBe('rendering');
   });
 
-  it('submits one batch only, and cannot complete without one', () => {
+  it('submits each batch once, and cannot complete without them', () => {
     const digest = begin();
     digest.recordCollection(collection(1), now);
-    expect(() =>
-      digest.completeEnrichment({ analyzedCount: 0, failedItemCount: 0, usage }, now),
-    ).toThrow(InvalidDigestStateError);
-    digest.enrichmentSubmitted('batch_1', now);
-    expect(() => digest.enrichmentSubmitted('batch_2', now)).toThrow(InvalidDigestStateError);
+    expect(() => digest.completeEnrichment(enrichment, now)).toThrow(InvalidDigestStateError);
+    digest.enrichmentSubmitted(refs, now);
+    expect(() => digest.enrichmentSubmitted(refs, now)).toThrow(InvalidDigestStateError);
+    digest.completeEnrichment(enrichment, now);
+    digest.synthesisSubmitted('batch_s', now);
+    expect(() => digest.synthesisSubmitted('batch_t', now)).toThrow(InvalidDigestStateError);
+  });
+
+  it('can complete synthesis without a batch (nothing to synthesise)', () => {
+    const digest = begin();
+    digest.recordCollection(collection(1), now);
+    digest.enrichmentSubmitted(refs, now);
+    digest.completeEnrichment(enrichment, now);
+    digest.completeSynthesis({ stories: new Map(), overview: '', usage }, now);
+    expect(digest.toSnapshot()).toMatchObject({ status: 'rendering', overview: null });
+    expect(digest.toSnapshot().clusters).toEqual([cluster]);
   });
 
   it('can be superseded instead of published', () => {
@@ -64,7 +91,7 @@ describe('Digest', () => {
   it('fails while unfinished and restarts from scratch', () => {
     const digest = begin();
     digest.recordCollection(collection(2), now);
-    digest.enrichmentSubmitted('batch_1', now);
+    digest.enrichmentSubmitted(refs, now);
     digest.fail('batch rejected', now);
     expect(digest.toSnapshot()).toMatchObject({
       status: 'failed',
@@ -74,7 +101,9 @@ describe('Digest', () => {
     digest.restart(now);
     expect(digest.toSnapshot()).toMatchObject({
       status: 'collecting',
-      batchRef: null,
+      analysisBatchRef: null,
+      embeddingBatchRef: null,
+      clusters: [],
       itemCount: 0,
       failureReason: null,
     });
@@ -84,6 +113,7 @@ describe('Digest', () => {
     const digest = begin();
     expect(() => digest.publish(now)).toThrow(InvalidDigestStateError);
     expect(() => digest.restart(now)).toThrow(InvalidDigestStateError);
+    expect(() => digest.synthesisSubmitted('batch_s', now)).toThrow(InvalidDigestStateError);
     digest.recordCollection(collection(0), now);
     digest.publish(now);
     expect(() => digest.fail('late', now)).toThrow(InvalidDigestStateError);

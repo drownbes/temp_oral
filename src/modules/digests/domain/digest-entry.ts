@@ -22,6 +22,8 @@ export interface DigestEntry {
   readonly analysis: ItemAnalysis | null;
   /** Why there is no analysis (LLM error, refusal, malformed answer, missing from batch). */
   readonly failure: string | null;
+  /** Semantic vector of the item, used to group coverage of the same story; null if missing. */
+  readonly embedding: readonly number[] | null;
 }
 
 const MAX_SUMMARY_LENGTH = 2000;

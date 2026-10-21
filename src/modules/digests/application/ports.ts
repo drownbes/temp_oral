@@ -1,6 +1,8 @@
 import type { FailedSource, TokenUsage } from '../domain/digest.ts';
-import type { DigestEntry, ItemAnalysis } from '../domain/digest-entry.ts';
+import type { ItemAnalysis } from '../domain/digest-entry.ts';
+import type { Story } from '../domain/ranking.ts';
 import type { RunId } from '../domain/run-id.ts';
+import type { StoryText } from '../domain/story.ts';
 
 /** An item handed over by the sources context for one run. */
 export interface CollectedItem {
@@ -51,12 +53,62 @@ export interface ItemAnalyzer {
   results(batchRef: string): Promise<AnalysisResults>;
 }
 
-/** Everything the page shows, already ranked. */
+export interface EmbeddingRequest {
+  /** Idempotency key: submitting the same key again returns the existing batch. */
+  readonly key: string;
+  readonly items: readonly CollectedItem[];
+}
+
+export interface EmbeddingResults {
+  readonly embeddings: ReadonlyMap<string, readonly number[]>;
+  readonly usage: TokenUsage;
+}
+
+/** Port: semantic vectors of items, asynchronously (an OpenAI Batch in production). */
+export interface ItemEmbedder {
+  submit(request: EmbeddingRequest): Promise<string>;
+  status(batchRef: string): Promise<BatchState>;
+  results(batchRef: string): Promise<EmbeddingResults>;
+}
+
+/** One item of a story, as the synthesizer sees it. */
+export interface StoryItem {
+  readonly sourceName: string;
+  readonly title: string;
+  /** The item's summary, or the start of its text when it has none. */
+  readonly summary: string;
+}
+
+export interface SynthesisRequest {
+  /** Idempotency key: submitting the same key again returns the existing batch. */
+  readonly key: string;
+  readonly interests: string;
+  /** Stories covered by several items, to merge into one headline and summary each. */
+  readonly stories: readonly { readonly clusterId: string; readonly items: readonly StoryItem[] }[];
+  /** The day's most relevant stories, for the overview; empty means no overview. */
+  readonly highlights: readonly StoryItem[];
+}
+
+export interface SynthesisResults {
+  readonly stories: ReadonlyMap<string, StoryText>;
+  readonly overview: string | null;
+  readonly usage: TokenUsage;
+}
+
+/** Port: merges multi-source stories and writes the day's overview (an OpenAI Batch). */
+export interface DigestSynthesizer {
+  submit(request: SynthesisRequest): Promise<string>;
+  status(batchRef: string): Promise<BatchState>;
+  results(batchRef: string): Promise<SynthesisResults>;
+}
+
+/** Everything the page shows, already grouped and ranked. */
 export interface DigestPage {
   readonly runId: RunId;
   readonly generatedAt: Date;
-  readonly featured: readonly DigestEntry[];
-  readonly alsoNoted: readonly DigestEntry[];
+  readonly overview: string | null;
+  readonly featured: readonly Story[];
+  readonly alsoNoted: readonly Story[];
   readonly failedSources: readonly FailedSource[];
   readonly itemCount: number;
   readonly analyzedCount: number;

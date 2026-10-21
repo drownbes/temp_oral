@@ -110,9 +110,10 @@ Contexts:
   run's new items to `sources/exports/<runId>.jsonl` (see `sources/contracts`). Design and
   roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md).
 - **digests** — one digest per day: starts a sources collection run (child workflow through
-  the sources contract), has every new item summarised and scored against the reader's
-  interest profile by an LLM batch, ranks them, and publishes a single static HTML page to
-  `DIGEST_PUBLISH_KEY` in S3.
+  the sources contract), has every new item summarised, scored against the reader's interest
+  profile and embedded (two LLM batches), groups coverage of the same story from different
+  sources, merges each such story into one headline and writes an overview (a third batch),
+  ranks the stories, and publishes a single static HTML page to `DIGEST_PUBLISH_KEY` in S3.
 
 ### Rules (enforced by `pnpm arch`)
 
@@ -160,10 +161,17 @@ loopback and link-local addresses are refused (SSRF protection, checked on every
 at connect time); `.env.development` sets `FETCH_ALLOW_PRIVATE_NETWORKS=true` so local test
 servers work. Never enable it in production.
 
-Digests: `LLM_PROVIDER` (`openai` | `stub`), `OPENAI_API_KEY`, `OPENAI_ITEM_MODEL` (default
+Digests: `LLM_PROVIDER` (`openai` | `stub`), `OPENAI_API_KEY`, `OPENAI_API_MODE` (`batch`, the
+default: Batch API, half price, up to 24h | `direct`: normal API, full price, seconds; use it
+for testing), `OPENAI_ITEM_MODEL` (default
 `gpt-6-luna`), `OPENAI_REASONING_EFFORT` (default `low`; `omit` for non-reasoning models), `DIGEST_CRON` + `DIGEST_TIMEZONE` (when the daily run fires, and which calendar
 day it covers), `DIGEST_PUBLISH_BUCKET` / `DIGEST_PUBLISH_KEY` (where the page goes; bucket
 defaults to `S3_BUCKET`), `DIGEST_MAX_ITEM_CHARS` (article text sent to the LLM per item).
+Grouping: `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`),
+`OPENAI_EMBEDDING_DIMENSIONS` (512), `DIGEST_CLUSTER_THRESHOLD` (0.63: cosine similarity at
+which items from different sources count as the same story; a story never holds two items
+of one source). Merged headlines and the overview use `OPENAI_SYNTHESIS_MODEL` (default
+`gpt-6-luna`).
 
 ## Things worth knowing
 
