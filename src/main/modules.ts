@@ -1,3 +1,4 @@
+import { digestsModule } from '#modules/digests/index.ts';
 import { documentsModule } from '#modules/documents/index.ts';
 import { notificationsModule } from '#modules/notifications/index.ts';
 import { sourcesModule } from '#modules/sources/index.ts';
@@ -8,4 +9,5 @@ export const modules: readonly ModuleDefinition[] = [
   documentsModule,
   notificationsModule,
   sourcesModule,
+  digestsModule,
 ];

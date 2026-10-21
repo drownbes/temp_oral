@@ -3,6 +3,7 @@ import { createDatabase } from '#shared/infrastructure/db/database.ts';
 import type { Lifecycle } from '#shared/infrastructure/lifecycle.ts';
 import type { Logger } from '#shared/infrastructure/logger.ts';
 import type { ModuleDeps } from '#shared/infrastructure/module.ts';
+import { createOpenAiClient } from '#shared/infrastructure/openai/openai.ts';
 import { createS3Client } from '#shared/infrastructure/s3/s3.ts';
 import type { Telemetry } from '#shared/infrastructure/telemetry/telemetry.ts';
 import { createTemporalClient } from '#shared/infrastructure/temporal/client.ts';
@@ -23,5 +24,7 @@ export async function createModuleDeps(
   const temporal = await createTemporalClient(config, telemetry);
   lifecycle.onShutdown('temporal-client', () => temporal.connection.close());
 
-  return { config, logger, db, s3, temporal };
+  const openai = createOpenAiClient(config);
+
+  return { config, logger, db, s3, temporal, openai };
 }

@@ -171,6 +171,33 @@ curl localhost:8080/sources/<id>/items
 summary + relevance, and publishes a single HTML page to S3. A stub LLM makes it work locally
 without cost.
 
+> **Status: done** (verified end to end with the stub and with the real OpenAI Batch API).
+> How the implementation differs from the plan below:
+> - The workflow is a loop driven by the digest's persisted status. Re-running a day resumes
+>   it (e.g. keeps waiting for the same batch) instead of starting over. A failed digest
+>   restarts from collection.
+> - Status `superseded` was added: a digest that finishes after a newer day was published
+>   does not overwrite the single page.
+> - Items are stored as `digest_entry` rows: one per collected item, with analysis or failure
+>   reason. `item_analysis` is a value inside an entry. Partial batches (expired/cancelled)
+>   still publish, and items without analysis are listed by title.
+> - Batch idempotency: batches carry `metadata.idempotency_key`. `submit` reuses a live batch
+>   with the same key, so a crash between submitting and saving doesn't pay twice.
+> - Not built (not needed yet): `OPENAI_SYNTHESIS_MODEL` / `OPENAI_EMBEDDING_MODEL` (phase 3),
+>   and `DIGEST_BATCH_POLL_INTERVAL`. Instead, polling backs off: the batch is checked after 1,
+>   2 and 5 minutes, then every 10 (`BATCH_POLL_INTERVALS`, a constant because a workflow
+>   can't read config; tests override it through the input). Small batches show up within
+>   minutes; a 24h wait costs about 150 cheap status checks.
+> - Verified against the real API (2026-10-21): 29 Phoronix items, `gpt-6-luna` through the
+>   Batch API, all analysed, 12.9k input / 3.7k output tokens (about $0.002), batch done in
+>   under 10 minutes.
+> - `ModuleDeps` gained `openai`; `ModuleDefinition` gained `schedules`, upserted by the
+>   worker at startup (startup fails on an invalid schedule).
+> - The default item model is `gpt-6-luna` (OpenAI's recommendation for cost-sensitive,
+>   high-volume work as of Oct 2026; batch $0.05 / $0.25 per 1M input/output tokens). It's a
+>   reasoning model, so `OPENAI_REASONING_EFFORT` (default `low`) is sent as
+>   `reasoning_effort`; set `omit` for a model without reasoning.
+
 ### Shared infrastructure
 
 - `config.ts`:

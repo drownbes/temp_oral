@@ -51,6 +51,7 @@
     "feedsmith": "^3.0.1",
     "import-in-the-middle": "3.5.2",
     "kysely": "^0.29.7",
+    "openai": "^7.30.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "undici": "^8.11.2",

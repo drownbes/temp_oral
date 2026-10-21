@@ -46,6 +46,21 @@ A source's first collection is a **baseline**: its current entries are remembere
 exported, so only articles published after you add a source reach the digest. Each item is
 exported by exactly one run; re-running a run id rewrites the same export.
 
+Digests (the `daily-digest` Temporal Schedule runs this every day at `DIGEST_CRON`):
+
+```sh
+curl -XPUT localhost:8080/profile -H 'content-type: application/json' \
+  -d '{"interests":"Linux kernel, GPU drivers","relevanceThreshold":0.5}'
+curl -XPOST localhost:8080/digests/runs -H 'content-type: application/json' -d '{}'   # today
+curl localhost:8080/digests                                       # status, counts, token usage
+curl localhost:8080/digests/<id>                                  # + every entry and its analysis
+xdg-open .data/s3/app-dev/digests/latest/index.html              # the published page
+```
+
+Locally `LLM_PROVIDER=stub` fills in fake summaries instantly. With `LLM_PROVIDER=openai` and
+`OPENAI_API_KEY` (put them in `.env`) items go through the OpenAI Batch API: half the price,
+but results can take up to 24 hours, and the workflow waits on durable timers until they do.
+
 In Grafana → Explore → Tempo, one trace spans `POST /documents` → S3 → Postgres →
 `processDocumentWorkflow` → activities → `sendNotificationWorkflow`; "Logs for this span"
 jumps to the matching VictoriaLogs lines, and log lines link back to the trace.
@@ -94,6 +109,10 @@ Contexts:
   collection run fetches them, stores raw HTML + text under `sources/raw/`, and exports the
   run's new items to `sources/exports/<runId>.jsonl` (see `sources/contracts`). Design and
   roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md).
+- **digests** — one digest per day: starts a sources collection run (child workflow through
+  the sources contract), has every new item summarised and scored against the reader's
+  interest profile by an LLM batch, ranks them, and publishes a single static HTML page to
+  `DIGEST_PUBLISH_KEY` in S3.
 
 ### Rules (enforced by `pnpm arch`)
 
@@ -140,6 +159,11 @@ Scraping uses `FETCH_TIMEOUT_MS`, `FETCH_MAX_BYTES` and `FETCH_USER_AGENT`. Fetc
 loopback and link-local addresses are refused (SSRF protection, checked on every redirect and
 at connect time); `.env.development` sets `FETCH_ALLOW_PRIVATE_NETWORKS=true` so local test
 servers work. Never enable it in production.
+
+Digests: `LLM_PROVIDER` (`openai` | `stub`), `OPENAI_API_KEY`, `OPENAI_ITEM_MODEL` (default
+`gpt-6-luna`), `OPENAI_REASONING_EFFORT` (default `low`; `omit` for non-reasoning models), `DIGEST_CRON` + `DIGEST_TIMEZONE` (when the daily run fires, and which calendar
+day it covers), `DIGEST_PUBLISH_BUCKET` / `DIGEST_PUBLISH_KEY` (where the page goes; bucket
+defaults to `S3_BUCKET`), `DIGEST_MAX_ITEM_CHARS` (article text sent to the LLM per item).
 
 ## Things worth knowing
 

@@ -4,6 +4,7 @@ import { Lifecycle } from '#shared/infrastructure/lifecycle.ts';
 import { createLogger } from '#shared/infrastructure/logger.ts';
 import type { Telemetry } from '#shared/infrastructure/telemetry/telemetry.ts';
 import { PinoTemporalLogger } from '#shared/infrastructure/temporal/logger.ts';
+import { upsertSchedules } from '#shared/infrastructure/temporal/schedules.ts';
 import {
   connectionOptions,
   temporalTracingPlugin,
@@ -44,6 +45,21 @@ export async function runWorker(telemetry: Telemetry): Promise<void> {
     }),
   );
   logger.info({ taskQueues: workers.map((w) => w.options.taskQueue) }, 'workers started');
+
+  // After the workers exist, so a schedule firing right away finds someone to run it. A bad
+  // schedule (e.g. invalid cron) fails startup rather than silently never running.
+  try {
+    await upsertSchedules(
+      deps.temporal,
+      modules.flatMap((module) => module.schedules?.(deps) ?? []),
+      logger,
+    );
+  } catch (err) {
+    logger.error({ err }, 'schedule setup failed');
+    process.exitCode = 1;
+    await lifecycle.shutdown();
+    return;
+  }
 
   try {
     await Promise.all(

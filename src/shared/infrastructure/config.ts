@@ -2,44 +2,80 @@ import { z } from 'zod';
 
 const LogLevel = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']);
 
-const EnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
-  SERVICE_NAME: z.string().min(1).default('temp-oral'),
-  LOG_LEVEL: LogLevel.default('info'),
+const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
+    SERVICE_NAME: z.string().min(1).default('temp-oral'),
+    LOG_LEVEL: LogLevel.default('info'),
 
-  HTTP_HOST: z.string().default('0.0.0.0'),
-  HTTP_PORT: z.coerce.number().int().positive().default(8080),
-  HTTP_MAX_UPLOAD_BYTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(10 * 1024 * 1024),
+    HTTP_HOST: z.string().default('0.0.0.0'),
+    HTTP_PORT: z.coerce.number().int().positive().default(8080),
+    HTTP_MAX_UPLOAD_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(10 * 1024 * 1024),
 
-  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
-  DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+    DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+    DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
 
-  // Credentials come from the default AWS provider chain (env, IRSA, instance profile, ...)
-  S3_BUCKET: z.string().min(1),
-  S3_ENDPOINT: z.url().optional(),
-  S3_FORCE_PATH_STYLE: z.stringbool().default(false),
-  AWS_REGION: z.string().min(1).default('us-east-1'),
+    // Credentials come from the default AWS provider chain (env, IRSA, instance profile, ...)
+    S3_BUCKET: z.string().min(1),
+    S3_ENDPOINT: z.url().optional(),
+    S3_FORCE_PATH_STYLE: z.stringbool().default(false),
+    AWS_REGION: z.string().min(1).default('us-east-1'),
 
-  TEMPORAL_ADDRESS: z.string().min(1),
-  TEMPORAL_NAMESPACE: z.string().min(1).default('default'),
-  // Set for Temporal Cloud; enables TLS
-  TEMPORAL_API_KEY: z.string().min(1).optional(),
+    TEMPORAL_ADDRESS: z.string().min(1),
+    TEMPORAL_NAMESPACE: z.string().min(1).default('default'),
+    // Set for Temporal Cloud; enables TLS
+    TEMPORAL_API_KEY: z.string().min(1).optional(),
 
-  // Outbound HTTP for scraping
-  FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
-  FETCH_MAX_BYTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(5 * 1024 * 1024),
-  FETCH_USER_AGENT: z.string().min(1).default('temp-oral-digest/0.1 (+feed reader)'),
-  // Keep false in production: URLs come from the API, so private addresses would be SSRF
-  FETCH_ALLOW_PRIVATE_NETWORKS: z.stringbool().default(false),
-});
+    // Outbound HTTP for scraping
+    FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+    FETCH_MAX_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(5 * 1024 * 1024),
+    FETCH_USER_AGENT: z.string().min(1).default('temp-oral-digest/0.1 (+feed reader)'),
+    // Keep false in production: URLs come from the API, so private addresses would be SSRF
+    FETCH_ALLOW_PRIVATE_NETWORKS: z.stringbool().default(false),
+
+    // LLM: `stub` answers instantly with fake output, for local development without cost
+    LLM_PROVIDER: z.enum(['openai', 'stub']).default('openai'),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    OPENAI_ITEM_MODEL: z.string().min(1).default('gpt-6-luna'),
+    // Reasoning models think before answering, billed as output tokens; summaries need little.
+    // `omit` leaves the parameter out, for models that don't support it.
+    OPENAI_REASONING_EFFORT: z.enum(['omit', 'none', 'low', 'medium', 'high']).default('low'),
+
+    // Daily digest
+    DIGEST_CRON: z.string().min(1).default('0 6 * * *'),
+    DIGEST_TIMEZONE: z.string().min(1).default('UTC'),
+    // Defaults to S3_BUCKET; set it to publish the page to a separate (e.g. public) bucket
+    DIGEST_PUBLISH_BUCKET: z.string().min(1).optional(),
+    DIGEST_PUBLISH_KEY: z.string().min(1).default('digests/latest/index.html'),
+    // Article text sent to the LLM per item; longer texts are cut
+    DIGEST_MAX_ITEM_CHARS: z.coerce.number().int().positive().default(16_000),
+  })
+  .superRefine((env, ctx) => {
+    if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OPENAI_API_KEY'],
+        message: 'required when LLM_PROVIDER=openai',
+      });
+    }
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: env.DIGEST_TIMEZONE });
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['DIGEST_TIMEZONE'],
+        message: 'unknown IANA time zone',
+      });
+    }
+  });
 
 export type AppConfig = ReturnType<typeof toConfig>;
 
@@ -66,6 +102,20 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       maxBytes: env.FETCH_MAX_BYTES,
       userAgent: env.FETCH_USER_AGENT,
       allowPrivateNetworks: env.FETCH_ALLOW_PRIVATE_NETWORKS,
+    },
+    llm: {
+      provider: env.LLM_PROVIDER,
+      openaiApiKey: env.OPENAI_API_KEY,
+      itemModel: env.OPENAI_ITEM_MODEL,
+      reasoningEffort:
+        env.OPENAI_REASONING_EFFORT === 'omit' ? undefined : env.OPENAI_REASONING_EFFORT,
+    },
+    digest: {
+      cron: env.DIGEST_CRON,
+      timezone: env.DIGEST_TIMEZONE,
+      publishBucket: env.DIGEST_PUBLISH_BUCKET ?? env.S3_BUCKET,
+      publishKey: env.DIGEST_PUBLISH_KEY,
+      maxItemChars: env.DIGEST_MAX_ITEM_CHARS,
     },
   } as const;
 }
