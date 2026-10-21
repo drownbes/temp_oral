@@ -29,6 +29,23 @@ curl localhost:8080/documents/<id>                       # status: processed, ch
 curl 'localhost:8080/notifications?recipient=ada@example.com'
 ```
 
+Sources and collection runs:
+
+```sh
+curl -XPOST localhost:8080/sources/preview -H 'content-type: application/json' \
+  -d '{"url":"https://hnrss.org/frontpage"}'                    # dry run: what would be read
+curl -XPOST localhost:8080/sources -H 'content-type: application/json' \
+  -d '{"name":"HN","url":"https://hnrss.org/frontpage"}'        # kind defaults to "feed"
+curl -XPOST localhost:8080/sources/collect -H 'content-type: application/json' \
+  -d '{"runId":"2026-10-21"}'                                   # starts collectSourcesWorkflow
+curl 'localhost:8080/sources/<id>/items?limit=20'
+cat .data/s3/app-dev/sources/exports/2026-10-21.jsonl            # the run's export
+```
+
+A source's first collection is a **baseline**: its current entries are remembered but not
+exported, so only articles published after you add a source reach the digest. Each item is
+exported by exactly one run; re-running a run id rewrites the same export.
+
 In Grafana → Explore → Tempo, one trace spans `POST /documents` → S3 → Postgres →
 `processDocumentWorkflow` → activities → `sendNotificationWorkflow`; "Logs for this span"
 jumps to the matching VictoriaLogs lines, and log lines link back to the trace.
@@ -67,11 +84,16 @@ src/
     index.ts                  the module definition: wires ports to adapters
 ```
 
-Two example contexts:
+Contexts:
 
-- **documents** — upload to S3, metadata in Postgres, a Temporal workflow computes a checksum.
+- **documents** (example) — upload to S3, metadata in Postgres, a Temporal workflow computes a
+  checksum.
 - **notifications** — idempotent notification sending; exposes a contract (task queue,
   workflow name, input/output types) that documents uses to start its workflow as a child.
+- **sources** — the websites the digest tracks (RSS/Atom/RDF/JSON feeds so far). A daily
+  collection run fetches them, stores raw HTML + text under `sources/raw/`, and exports the
+  run's new items to `sources/exports/<runId>.jsonl` (see `sources/contracts`). Design and
+  roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md).
 
 ### Rules (enforced by `pnpm arch`)
 
@@ -113,6 +135,11 @@ Validated once at startup by `src/shared/infrastructure/config.ts`; invalid conf
 readable report. Local values are in `.env.development` (checked in); put overrides in `.env`
 (git-ignored). Production gets real environment variables; AWS credentials come from the default
 provider chain. Set `TEMPORAL_API_KEY` for Temporal Cloud (enables TLS).
+
+Scraping uses `FETCH_TIMEOUT_MS`, `FETCH_MAX_BYTES` and `FETCH_USER_AGENT`. Fetches to private,
+loopback and link-local addresses are refused (SSRF protection, checked on every redirect and
+at connect time); `.env.development` sets `FETCH_ALLOW_PRIVATE_NETWORKS=true` so local test
+servers work. Never enable it in production.
 
 ## Things worth knowing
 

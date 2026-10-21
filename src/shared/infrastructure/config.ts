@@ -28,6 +28,17 @@ const EnvSchema = z.object({
   TEMPORAL_NAMESPACE: z.string().min(1).default('default'),
   // Set for Temporal Cloud; enables TLS
   TEMPORAL_API_KEY: z.string().min(1).optional(),
+
+  // Outbound HTTP for scraping
+  FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  FETCH_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 1024 * 1024),
+  FETCH_USER_AGENT: z.string().min(1).default('temp-oral-digest/0.1 (+feed reader)'),
+  // Keep false in production: URLs come from the API, so private addresses would be SSRF
+  FETCH_ALLOW_PRIVATE_NETWORKS: z.stringbool().default(false),
 });
 
 export type AppConfig = ReturnType<typeof toConfig>;
@@ -49,6 +60,12 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       address: env.TEMPORAL_ADDRESS,
       namespace: env.TEMPORAL_NAMESPACE,
       apiKey: env.TEMPORAL_API_KEY,
+    },
+    fetch: {
+      timeoutMs: env.FETCH_TIMEOUT_MS,
+      maxBytes: env.FETCH_MAX_BYTES,
+      userAgent: env.FETCH_USER_AGENT,
+      allowPrivateNetworks: env.FETCH_ALLOW_PRIVATE_NETWORKS,
     },
   } as const;
 }

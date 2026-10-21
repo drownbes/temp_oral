@@ -24,8 +24,9 @@ Phases 3 and 4 are independent and can run in parallel after phase 2.
 
 ## Design notes that affect every phase
 
-- **No hashing in `domain/`.** Domain code may not import `node:crypto`, so deterministic IDs
-  come from a `Hasher` port in `application/ports.ts` (adapter: `infrastructure/crypto-hasher.ts`).
+- **Deterministic IDs without imports.** Domain code may not import `node:crypto`, but the
+  global Web Crypto API is fine (as `crypto.randomUUID()` already is), so `itemIdFor()` in
+  `domain/item.ts` derives a UUIDv8 from `sha256(sourceId, canonicalUrl)`. No `Hasher` port.
   URL canonicalisation uses the global `URL` and stays in the domain.
 - **No zod in `application/`.** Application code may not import npm packages. Anything that
   parses untrusted shapes (feed XML, LLM JSON) does so in the adapter and returns typed
@@ -43,6 +44,23 @@ Phases 3 and 4 are independent and can run in parallel after phase 2.
 
 **Goal:** register feeds through the API, collect them on demand, store raw and extracted
 content in S3, and produce the JSONL export that `digests` will consume.
+
+> **Status: done.** How the implementation differs from the plan below:
+> - No `Hasher` port (see the design notes); `planCollection` is split into `uniqueEntries` +
+>   `planCollection` so known URLs can be looked up between them.
+> - Run assignment is an atomic repository operation, `ItemRepository.claimForRun(runId)`
+>   (one `UPDATE … WHERE exported_in_run IS NULL`). It's safe when runs overlap, so there is no
+>   domain `assignToRun` method.
+> - The feed reader is `extract/feedsmith-feed-reader.ts` (feedsmith 3: RSS, Atom, RDF,
+>   JSON Feed), with a small regex `html-text.ts` for entry HTML. Phase 4 brings a DOM extractor.
+> - Concurrency is the `COLLECT_CONCURRENCY` constant in `interface/temporal/definitions.ts`
+>   (a workflow can't read config) and works as a pool, not fixed chunks.
+> - `listCollectableSources(runId)` validates the run id, so a bad id fails the run up front
+>   instead of recording a failure for every source.
+> - Fetch config: `FETCH_TIMEOUT_MS` defaults to 15000. The address guard checks literal IPs on
+>   every redirect hop and resolved IPs at connect time (DNS rebinding).
+> - Fetcher and feed reader tests are self-contained unit tests (a local `node:http` server and
+>   fixtures); Postgres and S3 adapters have `*.int.test.ts`.
 
 ### Domain (`domain/`)
 
