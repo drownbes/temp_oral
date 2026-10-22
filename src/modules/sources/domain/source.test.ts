@@ -11,7 +11,7 @@ const create = (overrides: Partial<Parameters<typeof Source.create>[0]> = {}) =>
     name: ' Example blog ',
     url: 'https://Example.com/feed.xml#top',
     fetchMode: 'http',
-    settings: { kind: 'feed' },
+    settings: { kind: 'feed', fetchArticles: true },
     now,
     ...overrides,
   });
@@ -86,7 +86,14 @@ describe('Source', () => {
 
 describe('sourceSettings', () => {
   it('keeps only the options of the kind', () => {
-    expect(sourceSettings('feed', { contentSelector: 'main' })).toEqual({ kind: 'feed' });
+    expect(sourceSettings('feed', { contentSelector: 'main' })).toEqual({
+      kind: 'feed',
+      fetchArticles: true,
+    });
+    expect(sourceSettings('feed', { fetchArticles: false })).toEqual({
+      kind: 'feed',
+      fetchArticles: false,
+    });
     expect(sourceSettings('listing', { linkSelector: ' a.post ', urlPattern: '' })).toEqual({
       kind: 'listing',
       linkSelector: 'a.post',

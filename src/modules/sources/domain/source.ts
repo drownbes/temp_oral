@@ -14,7 +14,11 @@ export type FetchMode = (typeof FETCH_MODES)[number];
 
 /** How to read a source. The kind lives here, so its options always match it. */
 export type SourceSettings =
-  | { readonly kind: 'feed' }
+  | {
+      readonly kind: 'feed';
+      /** Fetch each new article's page when the feed only carries a teaser. */
+      readonly fetchArticles: boolean;
+    }
   | {
       readonly kind: 'listing';
       /** CSS selector of article links on the index page. */
@@ -29,6 +33,7 @@ export type SourceSettings =
     };
 
 export interface SourceSettingsInput {
+  readonly fetchArticles?: boolean | null;
   readonly linkSelector?: string | null;
   readonly urlPattern?: string | null;
   readonly contentSelector?: string | null;
@@ -39,7 +44,7 @@ export function sourceSettings(kind: SourceKind, input: SourceSettingsInput = {}
   const optional = (value: string | null | undefined) => value?.trim() || null;
   switch (kind) {
     case 'feed':
-      return { kind };
+      return { kind, fetchArticles: input.fetchArticles ?? true };
     case 'listing': {
       const urlPattern = optional(input.urlPattern);
       if (urlPattern) {

@@ -73,3 +73,15 @@ export interface ItemExporter {
 export interface CollectionStarter {
   start(runId: RunId): Promise<{ readonly workflowId: string }>;
 }
+
+export interface ExtractedArticle {
+  readonly title: string;
+  /** The article body only (no navigation, ads, comments). */
+  readonly html: string;
+  readonly text: string;
+}
+
+/** Port: pulls the readable article out of a full web page; undefined if there is none. */
+export interface ArticleExtractor {
+  extract(html: string, url: string): ExtractedArticle | undefined;
+}

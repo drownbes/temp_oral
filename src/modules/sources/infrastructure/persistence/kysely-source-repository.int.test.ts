@@ -23,7 +23,7 @@ describe('KyselySourceRepository', () => {
 
   afterAll(() => db.destroy());
 
-  const source = (url: string, settings: SourceSettings = { kind: 'feed' }) =>
+  const source = (url: string, settings: SourceSettings = { kind: 'feed', fetchArticles: false }) =>
     Source.create({
       id: newSourceId(),
       ownerId,

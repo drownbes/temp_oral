@@ -13,7 +13,7 @@ const source = () =>
     name: 'Blog',
     url: 'https://example.com/blog/feed.xml',
     fetchMode: 'http',
-    settings: { kind: 'feed' },
+    settings: { kind: 'feed', fetchArticles: true },
     now,
   });
 

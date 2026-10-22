@@ -87,7 +87,7 @@ export class KyselySourceRepository implements SourceRepository {
 function toSettings(row: Selectable<SourceTable>): SourceSettings {
   switch (row.kind) {
     case 'feed':
-      return { kind: 'feed' };
+      return { kind: 'feed', fetchArticles: row.fetch_articles };
     case 'listing':
       return { kind: 'listing', linkSelector: row.link_selector, urlPattern: row.url_pattern };
     case 'page':
@@ -125,6 +125,7 @@ function toRow(source: Source): SourceTable {
     url: s.url,
     kind: settings.kind,
     fetch_mode: s.fetchMode,
+    fetch_articles: settings.kind === 'feed' ? settings.fetchArticles : true,
     link_selector: settings.kind === 'listing' ? settings.linkSelector : null,
     url_pattern: settings.kind === 'listing' ? settings.urlPattern : null,
     content_selector: settings.kind === 'page' ? settings.contentSelector : null,

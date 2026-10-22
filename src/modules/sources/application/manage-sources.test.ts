@@ -32,7 +32,11 @@ describe('managing sources', () => {
 
   it('creates a source and lists it', async () => {
     const source = await create();
-    expect(source).toMatchObject({ name: 'Example', settings: { kind: 'feed' }, enabled: true });
+    expect(source).toMatchObject({
+      name: 'Example',
+      settings: { kind: 'feed', fetchArticles: true },
+      enabled: true,
+    });
     expect(await new ListSources(repository).execute('default')).toEqual([source]);
     expect(await new ListSources(repository).execute('someone-else')).toEqual([]);
   });

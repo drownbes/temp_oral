@@ -24,7 +24,7 @@ export interface UpdateSourceDeps {
   readonly clock: Clock;
 }
 
-const SETTINGS_FIELDS = ['linkSelector', 'urlPattern', 'contentSelector'] as const;
+const SETTINGS_FIELDS = ['fetchArticles', 'linkSelector', 'urlPattern', 'contentSelector'] as const;
 
 export class UpdateSource {
   readonly #deps: UpdateSourceDeps;
@@ -42,12 +42,12 @@ export class UpdateSource {
     const current = source.toSnapshot();
     const touchesSettings =
       command.kind !== undefined || SETTINGS_FIELDS.some((f) => command[f] !== undefined);
-    const options: Record<string, string | null | undefined> = { ...current.settings };
+    const options: Record<string, unknown> = { ...current.settings };
     for (const field of SETTINGS_FIELDS) {
       if (command[field] !== undefined) options[field] = command[field];
     }
     const settings = touchesSettings
-      ? sourceSettings(command.kind ?? source.kind, options)
+      ? sourceSettings(command.kind ?? source.kind, options as SourceSettingsInput)
       : undefined;
 
     source.update(

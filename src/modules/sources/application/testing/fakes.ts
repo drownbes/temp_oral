@@ -4,8 +4,10 @@ import type { RunId } from '../../domain/run-id.ts';
 import { Source, type SourceId, type SourceSnapshot } from '../../domain/source.ts';
 import type { SourceRepository } from '../../domain/source-repository.ts';
 import type {
+  ArticleExtractor,
   CollectionStarter,
   ExportLine,
+  ExtractedArticle,
   FeedEntry,
   FeedReader,
   FetchRequest,
@@ -115,6 +117,25 @@ export class StubPageFetcher implements PageFetcher {
   }
 }
 
+/** Serves an article page whose body is `<article>text</article>`. */
+export function serveArticle(fetcher: StubPageFetcher, url: string, text: string): void {
+  fetcher.responses.set(url, {
+    status: 'ok',
+    url,
+    contentType: 'text/html',
+    body: `<html><nav>menu</nav><article>${text}</article></html>`,
+    validators: { etag: null, lastModified: null },
+  });
+}
+
+/** Reads what serveArticle served; any other page has no article. */
+export class FakeArticleExtractor implements ArticleExtractor {
+  extract(html: string): ExtractedArticle | undefined {
+    const text = /<article>(.*)<\/article>/s.exec(html)?.[1];
+    return text ? { title: '', html: `<article>${text}</article>`, text } : undefined;
+  }
+}
+
 /** Reads a JSON array of entries; title doubles as content. */
 export class JsonFeedReader implements FeedReader {
   read(body: string): FeedEntry[] {
@@ -122,8 +143,8 @@ export class JsonFeedReader implements FeedReader {
       url: e.url ?? '',
       title: e.title ?? '',
       publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
-      html: `<p>${e.title ?? ''}</p>`,
-      text: e.title ?? '',
+      html: `<p>${e.text ?? e.title ?? ''}</p>`,
+      text: e.text ?? e.title ?? '',
     }));
   }
 }

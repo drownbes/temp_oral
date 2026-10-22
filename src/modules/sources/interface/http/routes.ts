@@ -23,6 +23,7 @@ const SourceParams = z.object({ id: z.uuid() });
 const ItemsQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
 
 const settingsFields = {
+  fetchArticles: z.boolean().nullable().optional(),
   linkSelector: z.string().nullable().optional(),
   urlPattern: z.string().nullable().optional(),
   contentSelector: z.string().nullable().optional(),

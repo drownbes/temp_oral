@@ -358,6 +358,24 @@ without cost.
 
 **Goal:** support sites without feeds and pages watched for changes.
 
+> **Status: partly done** (2026-10-22): full article text for feeds. Listing pages and page
+> watch are still to do.
+> - Feed sources have `fetchArticles` (default on, migration `0003_add_fetch_articles`).
+>   A new item's page is fetched only when the feed text is a teaser (under 1,500 chars,
+>   `domain/article.ts`) and never for baseline items; the article text replaces the teaser
+>   only if it is longer, and the whole page becomes the item's raw content.
+> - Extraction: `@mozilla/readability` on `linkedom`; unreadable pages (cookie walls,
+>   index pages, malformed HTML) count as "no article" and the teaser is kept. Fetch
+>   failures never fail a collection; `collectSource` reports `articlesFetched` /
+>   `articleFailures`.
+> - Politeness: 2 article fetches at a time, at most 30 per source per run; the collect
+>   activity timeout went up to 10 minutes.
+> - `POST /sources/preview` returns an `articleSample` (feed vs. article length and an
+>   excerpt) for teaser feeds, to check extraction before adding a source.
+> - Real data: Phoronix 129 → 1,376 chars, 9to5Linux 405 → 1,899, LinuxGizmos 390 → 3,993;
+>   summaries went from "the teaser gives no details" to specifics (CVSS scores, latency
+>   numbers). Tweag already ships full text and is never fetched.
+
 - **Domain:**
   - `PageSnapshot` aggregate; `detectChange(previous, current)` ignores whitespace-only
     changes, and the first snapshot is the baseline.

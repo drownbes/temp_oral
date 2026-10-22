@@ -15,6 +15,8 @@ const collected = (sourceId: string): CollectSourceResult => ({
   status: 'collected',
   newItems: 1,
   baseline: false,
+  articlesFetched: 0,
+  articleFailures: 0,
 });
 
 describe('collectSourcesWorkflow', () => {

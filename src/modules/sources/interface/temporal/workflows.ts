@@ -5,8 +5,14 @@ import type { CollectSourcesWorkflow, FailedSource } from '../../contracts/index
 import type { SourceActivities } from './activities.ts';
 import { COLLECT_CONCURRENCY } from './definitions.ts';
 
-const { listCollectableSources, collectSource, exportItems } = proxyActivities<SourceActivities>({
+const { listCollectableSources, exportItems } = proxyActivities<SourceActivities>({
   startToCloseTimeout: '2 minutes',
+  retry: { maximumAttempts: 3, initialInterval: '10 seconds' },
+});
+
+// Fetching a feed plus up to 30 article pages (2 at a time) can take a few minutes
+const { collectSource } = proxyActivities<SourceActivities>({
+  startToCloseTimeout: '10 minutes',
   retry: { maximumAttempts: 3, initialInterval: '10 seconds' },
 });
 

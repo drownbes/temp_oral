@@ -42,6 +42,10 @@ curl 'localhost:8080/sources/<id>/items?limit=20'
 cat .data/s3/app-dev/sources/exports/2026-10-21.jsonl            # the run's export
 ```
 
+Feeds that only carry teasers get each new article's own page fetched and its text extracted
+(Readability); set `"fetchArticles": false` on a source to keep the feed text. The preview
+shows an `articleSample` so you can check the extraction first.
+
 A source's first collection is a **baseline**: its current entries are remembered but not
 exported, so only articles published after you add a source reach the digest. Each item is
 exported by exactly one run; re-running a run id rewrites the same export.

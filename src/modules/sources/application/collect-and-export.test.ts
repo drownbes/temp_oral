@@ -7,6 +7,7 @@ import { CreateSource } from './create-source.ts';
 import { ExportItems } from './export-items.ts';
 import { RecordCollectionFailure } from './record-collection-failure.ts';
 import {
+  FakeArticleExtractor,
   InMemoryItemContentStore,
   InMemoryItemExporter,
   InMemoryItemRepository,
@@ -50,6 +51,7 @@ describe('collecting a source and exporting a run', () => {
       items,
       fetcher,
       feedReader: new JsonFeedReader(),
+      articleExtractor: new FakeArticleExtractor(),
       contentStore,
       clock,
     }).execute(source.id, runId);

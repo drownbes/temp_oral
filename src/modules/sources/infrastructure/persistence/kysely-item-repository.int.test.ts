@@ -29,7 +29,7 @@ describe('KyselyItemRepository', () => {
       name: 'Example',
       url: 'https://example.com/feed.xml',
       fetchMode: 'http',
-      settings: { kind: 'feed' },
+      settings: { kind: 'feed', fetchArticles: true },
       now,
     });
     await new KyselySourceRepository(tables).save(source);

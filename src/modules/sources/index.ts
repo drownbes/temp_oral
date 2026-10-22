@@ -15,6 +15,7 @@ import { StartCollection } from './application/start-collection.ts';
 import { UpdateSource } from './application/update-source.ts';
 import { SOURCES_TASK_QUEUE } from './contracts/index.ts';
 import { FeedsmithFeedReader } from './infrastructure/extract/feedsmith-feed-reader.ts';
+import { ReadabilityArticleExtractor } from './infrastructure/extract/readability-article-extractor.ts';
 import { UndiciPageFetcher } from './infrastructure/fetch/undici-page-fetcher.ts';
 import { KyselyItemRepository } from './infrastructure/persistence/kysely-item-repository.ts';
 import { KyselySourceRepository } from './infrastructure/persistence/kysely-source-repository.ts';
@@ -33,6 +34,7 @@ function adapters(deps: ModuleDeps) {
     items: new KyselyItemRepository(db),
     fetcher: new UndiciPageFetcher(deps.config.fetch),
     feedReader: new FeedsmithFeedReader(),
+    articleExtractor: new ReadabilityArticleExtractor(),
     clock: systemClock,
   };
 }
@@ -44,7 +46,7 @@ export const sourcesModule: ModuleDefinition = {
     folder: fileURLToPath(new URL('./infrastructure/persistence/migrations', import.meta.url)),
   },
   http(deps) {
-    const { sources, items, fetcher, feedReader, clock } = adapters(deps);
+    const { sources, items, fetcher, feedReader, articleExtractor, clock } = adapters(deps);
     return sourceRoutes({
       create: new CreateSource({ repository: sources, clock }),
       update: new UpdateSource({ repository: sources, clock }),
@@ -52,12 +54,12 @@ export const sourcesModule: ModuleDefinition = {
       get: new GetSource(sources),
       list: new ListSources(sources),
       listItems: new ListSourceItems({ sources, items }),
-      preview: new PreviewSource({ fetcher, feedReader }),
+      preview: new PreviewSource({ fetcher, feedReader, articleExtractor }),
       startCollection: new StartCollection(new TemporalCollectionStarter(deps.temporal)),
     });
   },
   worker(deps) {
-    const { sources, items, fetcher, feedReader, clock } = adapters(deps);
+    const { sources, items, fetcher, feedReader, articleExtractor, clock } = adapters(deps);
     const contentStore = new S3ItemContentStore(deps.s3, deps.config.s3.bucket);
     const exporter = new S3ItemExporter(deps.s3, deps.config.s3.bucket);
     return {
@@ -70,6 +72,7 @@ export const sourcesModule: ModuleDefinition = {
           items,
           fetcher,
           feedReader,
+          articleExtractor,
           contentStore,
           clock,
         }),

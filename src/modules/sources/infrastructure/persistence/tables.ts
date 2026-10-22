@@ -10,6 +10,7 @@ export type SourceTable = {
   url: string;
   kind: SourceKind;
   fetch_mode: FetchMode;
+  fetch_articles: boolean;
   link_selector: string | null;
   url_pattern: string | null;
   content_selector: string | null;
