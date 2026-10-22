@@ -34,7 +34,8 @@ export interface ExportedItem {
   readonly itemId: string;
   readonly sourceId: string;
   readonly sourceName: string;
-  readonly kind: 'article';
+  /** 'change': a watched page changed; the text describes what was added and removed. */
+  readonly kind: 'article' | 'change';
   readonly url: string;
   readonly title: string;
   /** ISO 8601, when the source states it. */

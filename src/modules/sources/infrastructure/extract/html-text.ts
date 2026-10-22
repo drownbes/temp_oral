@@ -40,6 +40,10 @@ export function htmlToText(html: string): string {
   const text = html
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, '')
+    // Line breaks in HTML source are just whitespace; only block elements start a line
+    .replace(/\s+/g, ' ')
+    // Table cells are inline, but their contents must not run together
+    .replace(/<\/(td|th)>/gi, ' ')
     .replace(BLOCK_TAGS, '\n')
     .replace(/<[^>]+>/g, '');
   return decodeEntities(text)

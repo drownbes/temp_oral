@@ -7,6 +7,7 @@ import { CreateSource } from './create-source.ts';
 import { ExportItems } from './export-items.ts';
 import { RecordCollectionFailure } from './record-collection-failure.ts';
 import {
+  collectSourceDeps,
   FakeArticleExtractor,
   InMemoryItemContentStore,
   InMemoryItemExporter,
@@ -46,15 +47,10 @@ describe('collecting a source and exporting a run', () => {
   });
 
   const collect = (runId: string) =>
-    new CollectSource({
-      sources,
-      items,
-      fetcher,
-      feedReader: new JsonFeedReader(),
-      articleExtractor: new FakeArticleExtractor(),
-      contentStore,
-      clock,
-    }).execute(source.id, runId);
+    new CollectSource(collectSourceDeps({ sources, items, fetcher, contentStore, clock })).execute(
+      source.id,
+      runId,
+    );
   const exportRun = (runId: string) =>
     new ExportItems({ items, sources, contentStore, exporter }).execute(runId);
 

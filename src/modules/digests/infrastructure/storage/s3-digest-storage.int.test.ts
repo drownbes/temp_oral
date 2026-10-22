@@ -37,14 +37,13 @@ describe('digests S3 adapters', () => {
       new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        Body: `${JSON.stringify(line)}\n${JSON.stringify({ ...line, itemId: 'i-2', publishedAt: null })}\n`,
+        Body: `${JSON.stringify(line)}\n${JSON.stringify({ ...line, itemId: 'i-2', kind: 'change', publishedAt: null })}\n`,
       }),
     );
 
-    const { kind: _kind, ...item } = line;
     expect(await new S3ExportedItemsReader(s3, bucket).read(key)).toEqual([
-      { ...item, publishedAt: new Date('2026-10-21T10:00:00.000Z') },
-      { ...item, itemId: 'i-2', publishedAt: null },
+      { ...line, publishedAt: new Date('2026-10-21T10:00:00.000Z') },
+      { ...line, itemId: 'i-2', kind: 'change', publishedAt: null },
     ]);
   });
 

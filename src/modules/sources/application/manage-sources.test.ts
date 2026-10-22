@@ -48,13 +48,21 @@ describe('managing sources', () => {
     );
   });
 
-  it.each([
-    [{ kind: 'listing' as const }],
-    [{ kind: 'page' as const }],
-    [{ fetchMode: 'browser' as const }],
-  ])('rejects source types this version cannot collect: %o', async (overrides) => {
-    await expect(create(overrides)).rejects.toThrow(SourceKindNotSupportedError);
+  it('rejects fetch modes this version cannot collect yet', async () => {
+    await expect(create({ fetchMode: 'browser' })).rejects.toThrow(SourceKindNotSupportedError);
     expect(repository.rows.size).toBe(0);
+  });
+
+  it('creates listing and page sources; a listing needs a selector or a pattern', async () => {
+    await expect(create({ kind: 'listing', url: 'https://example.com/blog/' })).rejects.toThrow(
+      InvalidSourceError,
+    );
+    expect(
+      await create({ kind: 'listing', url: 'https://example.com/blog/', linkSelector: 'h2 a' }),
+    ).toMatchObject({ settings: { kind: 'listing', linkSelector: 'h2 a', urlPattern: null } });
+    expect(
+      await create({ kind: 'page', url: 'https://kernel.org/', contentSelector: '#releases' }),
+    ).toMatchObject({ settings: { kind: 'page', contentSelector: '#releases' } });
   });
 
   it('validates before checking support', async () => {

@@ -19,7 +19,8 @@ export async function itemIdFor(sourceId: SourceId, canonicalUrl: string): Promi
   return `${parts.join('-')}-${hex.slice(20)}` as ItemId;
 }
 
-export type ItemKind = 'article';
+/** An article (feed entry, listing link) or a detected change of a watched page. */
+export type ItemKind = 'article' | 'change';
 
 export interface ItemContentKeys {
   readonly rawKey: string;
@@ -46,6 +47,8 @@ export interface ItemSnapshot {
 
 export interface DiscoverItemProps {
   readonly id: ItemId;
+  /** Defaults to 'article'. */
+  readonly kind?: ItemKind;
   readonly sourceId: SourceId;
   readonly url: string;
   readonly title: string;
@@ -70,7 +73,7 @@ export class Item {
     return new Item({
       id: props.id,
       sourceId: props.sourceId,
-      kind: 'article',
+      kind: props.kind ?? 'article',
       url: props.url,
       title: title.slice(0, MAX_TITLE_LENGTH),
       publishedAt: props.publishedAt,

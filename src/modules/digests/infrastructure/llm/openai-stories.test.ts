@@ -6,6 +6,7 @@ import { completion, FakeBatchClient, okLine } from './testing/fake-batch-client
 
 const item = (itemId: string, text: string): CollectedItem => ({
   itemId,
+  kind: 'article',
   sourceId: 's-1',
   sourceName: 'Phoronix',
   url: `https://example.com/${itemId}`,

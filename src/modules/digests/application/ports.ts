@@ -7,6 +7,8 @@ import type { StoryText } from '../domain/story.ts';
 /** An item handed over by the sources context for one run. */
 export interface CollectedItem {
   readonly itemId: string;
+  /** 'change': a watched page changed; `text` lists the added and removed lines. */
+  readonly kind: 'article' | 'change';
   readonly sourceId: string;
   readonly sourceName: string;
   readonly url: string;

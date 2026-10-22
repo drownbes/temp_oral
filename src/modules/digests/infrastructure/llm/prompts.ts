@@ -43,6 +43,14 @@ export function itemUserPrompt(item: CollectedItem): string {
     `Title: ${item.title}`,
     `URL: ${item.url}`,
     `Published: ${item.publishedAt?.toISOString() ?? 'unknown'}`,
+    ...(item.kind === 'change'
+      ? [
+          '',
+          'This is not an article: a page the reader watches has changed. The text lists the',
+          'lines that were added (+) and removed (-). Summarise what changed and why it matters;',
+          'ignore incidental churn such as dates, counters or reordered navigation.',
+        ]
+      : []),
     '',
     '<article>',
     item.text || '(no text, only the title is available)',

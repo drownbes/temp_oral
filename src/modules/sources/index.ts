@@ -15,9 +15,12 @@ import { StartCollection } from './application/start-collection.ts';
 import { UpdateSource } from './application/update-source.ts';
 import { SOURCES_TASK_QUEUE } from './contracts/index.ts';
 import { FeedsmithFeedReader } from './infrastructure/extract/feedsmith-feed-reader.ts';
+import { LinkedomLinkExtractor } from './infrastructure/extract/linkedom-link-extractor.ts';
+import { LinkedomPageTextExtractor } from './infrastructure/extract/linkedom-page-text-extractor.ts';
 import { ReadabilityArticleExtractor } from './infrastructure/extract/readability-article-extractor.ts';
 import { UndiciPageFetcher } from './infrastructure/fetch/undici-page-fetcher.ts';
 import { KyselyItemRepository } from './infrastructure/persistence/kysely-item-repository.ts';
+import { KyselyPageSnapshotRepository } from './infrastructure/persistence/kysely-page-snapshot-repository.ts';
 import { KyselySourceRepository } from './infrastructure/persistence/kysely-source-repository.ts';
 import { SOURCES_SCHEMA, type SourcesTables } from './infrastructure/persistence/tables.ts';
 import { S3ItemContentStore } from './infrastructure/storage/s3-item-content-store.ts';
@@ -34,7 +37,9 @@ function adapters(deps: ModuleDeps) {
     items: new KyselyItemRepository(db),
     fetcher: new UndiciPageFetcher(deps.config.fetch),
     feedReader: new FeedsmithFeedReader(),
+    linkExtractor: new LinkedomLinkExtractor(),
     articleExtractor: new ReadabilityArticleExtractor(),
+    pageTextExtractor: new LinkedomPageTextExtractor(),
     clock: systemClock,
   };
 }
@@ -46,7 +51,16 @@ export const sourcesModule: ModuleDefinition = {
     folder: fileURLToPath(new URL('./infrastructure/persistence/migrations', import.meta.url)),
   },
   http(deps) {
-    const { sources, items, fetcher, feedReader, articleExtractor, clock } = adapters(deps);
+    const {
+      sources,
+      items,
+      fetcher,
+      feedReader,
+      linkExtractor,
+      articleExtractor,
+      pageTextExtractor,
+      clock,
+    } = adapters(deps);
     return sourceRoutes({
       create: new CreateSource({ repository: sources, clock }),
       update: new UpdateSource({ repository: sources, clock }),
@@ -54,12 +68,28 @@ export const sourcesModule: ModuleDefinition = {
       get: new GetSource(sources),
       list: new ListSources(sources),
       listItems: new ListSourceItems({ sources, items }),
-      preview: new PreviewSource({ fetcher, feedReader, articleExtractor }),
+      preview: new PreviewSource({
+        fetcher,
+        feedReader,
+        linkExtractor,
+        articleExtractor,
+        pageTextExtractor,
+      }),
       startCollection: new StartCollection(new TemporalCollectionStarter(deps.temporal)),
     });
   },
   worker(deps) {
-    const { sources, items, fetcher, feedReader, articleExtractor, clock } = adapters(deps);
+    const {
+      sources,
+      items,
+      fetcher,
+      feedReader,
+      linkExtractor,
+      articleExtractor,
+      pageTextExtractor,
+      clock,
+    } = adapters(deps);
+    const snapshots = new KyselyPageSnapshotRepository(deps.db.withTables<SourcesTables>());
     const contentStore = new S3ItemContentStore(deps.s3, deps.config.s3.bucket);
     const exporter = new S3ItemExporter(deps.s3, deps.config.s3.bucket);
     return {
@@ -70,9 +100,12 @@ export const sourcesModule: ModuleDefinition = {
         collectSource: new CollectSource({
           sources,
           items,
+          snapshots,
           fetcher,
           feedReader,
+          linkExtractor,
           articleExtractor,
+          pageTextExtractor,
           contentStore,
           clock,
         }),

@@ -5,6 +5,7 @@ export type ArticleFetch =
       readonly ok: true;
       /** The whole page, kept as the item's raw content. */
       readonly pageHtml: string;
+      readonly title: string;
       readonly text: string;
     }
   | { readonly ok: false; readonly reason: string };
@@ -22,7 +23,7 @@ export async function fetchArticle(
     if (page.status !== 'ok') return { ok: false, reason: 'unexpected not-modified' };
     const article = deps.extractor.extract(page.body, page.url);
     if (!article) return { ok: false, reason: 'no readable article on the page' };
-    return { ok: true, pageHtml: page.body, text: article.text };
+    return { ok: true, pageHtml: page.body, title: article.title, text: article.text };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }

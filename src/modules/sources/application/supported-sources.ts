@@ -2,7 +2,7 @@ import { SourceKindNotSupportedError } from '../domain/errors.ts';
 import type { FetchMode, SourceKind } from '../domain/source.ts';
 
 /** What the collectors in this version can read. Grows as listing / page / browser land. */
-const SUPPORTED_KINDS: readonly SourceKind[] = ['feed'];
+const SUPPORTED_KINDS: readonly SourceKind[] = ['feed', 'listing', 'page'];
 const SUPPORTED_FETCH_MODES: readonly FetchMode[] = ['http'];
 
 export function assertSupported(kind: SourceKind, fetchMode: FetchMode): void {

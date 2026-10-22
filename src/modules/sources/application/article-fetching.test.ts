@@ -4,6 +4,7 @@ import { CollectSource } from './collect-source.ts';
 import { CreateSource } from './create-source.ts';
 import { PreviewSource } from './preview-source.ts';
 import {
+  collectSourceDeps,
   FakeArticleExtractor,
   InMemoryItemContentStore,
   InMemoryItemRepository,
@@ -47,15 +48,10 @@ describe('fetching article pages for teaser feeds', () => {
   });
 
   const collect = (runId: string) =>
-    new CollectSource({
-      sources,
-      items,
-      fetcher,
-      feedReader: new JsonFeedReader(),
-      articleExtractor: new FakeArticleExtractor(),
-      contentStore,
-      clock,
-    }).execute(source.id, runId);
+    new CollectSource(collectSourceDeps({ sources, items, fetcher, contentStore, clock })).execute(
+      source.id,
+      runId,
+    );
   const storedText = () => {
     const [item] = [...items.rows.values()];
     return item ? contentStore.objects.get(item.content.textKey) : undefined;
@@ -114,11 +110,9 @@ describe('fetching article pages for teaser feeds', () => {
   it('previews what article fetching makes of the first entry', async () => {
     fetcher.serveFeed(FEED, [{ url: ARTICLE, title: 'New', text: 'A short teaser...' }]);
     serveArticle(fetcher, ARTICLE, FULL_TEXT);
-    const preview = new PreviewSource({
-      fetcher,
-      feedReader: new JsonFeedReader(),
-      articleExtractor: new FakeArticleExtractor(),
-    });
+    const preview = new PreviewSource(
+      collectSourceDeps({ sources, items, fetcher, contentStore, clock }),
+    );
 
     const result = await preview.execute({ url: FEED, kind: 'feed', fetchMode: 'http' });
     expect(result.articleSample).toEqual({

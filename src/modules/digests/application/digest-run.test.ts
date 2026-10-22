@@ -34,6 +34,7 @@ const item = (
   text = `Text of ${itemId}`,
 ): CollectedItem => ({
   itemId,
+  kind: 'article',
   sourceId: `src-${sourceName}`,
   sourceName,
   url: `https://example.com/${itemId}`,

@@ -91,5 +91,9 @@ function parseDate(value: string | undefined): Date | null {
 }
 
 function escapeText(text: string | undefined): string | undefined {
-  return text?.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text
+    ?.replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
 }

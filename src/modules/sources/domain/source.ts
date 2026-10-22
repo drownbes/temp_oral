@@ -54,7 +54,12 @@ export function sourceSettings(kind: SourceKind, input: SourceSettingsInput = {}
           throw new InvalidSourceError(`urlPattern is not a valid regular expression`);
         }
       }
-      return { kind, linkSelector: optional(input.linkSelector), urlPattern };
+      const linkSelector = optional(input.linkSelector);
+      // Without either, "every link" would include navigation, tags and footers
+      if (!linkSelector && !urlPattern) {
+        throw new InvalidSourceError('listing sources need a linkSelector or a urlPattern');
+      }
+      return { kind, linkSelector, urlPattern };
     }
     case 'page':
       return { kind, contentSelector: optional(input.contentSelector) };

@@ -358,8 +358,7 @@ without cost.
 
 **Goal:** support sites without feeds and pages watched for changes.
 
-> **Status: partly done** (2026-10-22): full article text for feeds. Listing pages and page
-> watch are still to do.
+> **Status: done** (2026-10-22). Full article text for feeds:
 > - Feed sources have `fetchArticles` (default on, migration `0003_add_fetch_articles`).
 >   A new item's page is fetched only when the feed text is a teaser (under 1,500 chars,
 >   `domain/article.ts`) and never for baseline items; the article text replaces the teaser
@@ -375,6 +374,30 @@ without cost.
 > - Real data: Phoronix 129 → 1,376 chars, 9to5Linux 405 → 1,899, LinuxGizmos 390 → 3,993;
 >   summaries went from "the teaser gives no details" to specifics (CVSS scores, latency
 >   numbers). Tweag already ships full text and is never fetched.
+>
+> Listing pages and page watch:
+> - **Listing** (`kind: "listing"`, needs `linkSelector` and/or `urlPattern`): links of the
+>   index page, same site only (`domain/article.ts#isListingArticle`), deduplicated with the
+>   longest link text as title. The first run baselines the links without fetching anything;
+>   later, each new link's page is fetched and read. A link whose article fails (or is over
+>   the 30-per-run cap) is **not stored**, so the next run retries it. Verified on the Tweag
+>   blog index (327 posts on one page, `urlPattern: "/blog/\\d{4}-\\d{2}-\\d{2}-"`).
+> - **Page watch** (`kind: "page"`, optional `contentSelector`): the text is normalised
+>   (whitespace, blank lines) and hashed; the first version (or the first after a URL change)
+>   is the baseline in `sources.page_snapshot` (migration `0004_create_page_snapshot`, which
+>   also allows item kind `change`). Each new version is one `change` item whose text lists
+>   added/removed lines (own multiset line diff in `domain/page-watch.ts`, capped at 60 lines
+>   each). Change items all live at the page URL, so their URL gets a `#change-<hash>` fragment
+>   to stay unique. Verified end to end on a copy of kernel.org's `#releases` table.
+> - Deviations from the plan: linkedom instead of cheerio (already a dependency), an own line
+>   diff instead of the `diff` package, and the article-fetch limits (2 at a time, 30 per run)
+>   instead of a per-host delay.
+> - `htmlToText` now treats source line breaks as whitespace and separates table cells, so
+>   table rows come out as one line each (changes then show the whole row).
+> - Digests: `ExportedItem.kind` is `'article' | 'change'`; for changes the analysis prompt
+>   asks what changed and why it matters. There is no separate "changes" section on the page:
+>   a change is ranked like any other story (title "<page>: page changed").
+> - Preview returns `entries` + `articleSample` for listings and a `pageSample` for pages.
 
 - **Domain:**
   - `PageSnapshot` aggregate; `detectChange(previous, current)` ignores whitespace-only

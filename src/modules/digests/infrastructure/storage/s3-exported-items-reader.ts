@@ -8,7 +8,7 @@ const ExportedItemLine: z.ZodType<ExportedItem> = z.object({
   itemId: z.string(),
   sourceId: z.string(),
   sourceName: z.string(),
-  kind: z.literal('article'),
+  kind: z.enum(['article', 'change']),
   url: z.string(),
   title: z.string(),
   publishedAt: z.string().nullable(),
@@ -37,6 +37,7 @@ export class S3ExportedItemsReader implements ExportedItemsReader {
         const item = ExportedItemLine.parse(JSON.parse(line));
         return {
           itemId: item.itemId,
+          kind: item.kind,
           sourceId: item.sourceId,
           sourceName: item.sourceName,
           url: item.url,

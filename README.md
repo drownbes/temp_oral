@@ -42,6 +42,17 @@ curl 'localhost:8080/sources/<id>/items?limit=20'
 cat .data/s3/app-dev/sources/exports/2026-10-21.jsonl            # the run's export
 ```
 
+Besides feeds, a source can be a **listing page** (a blog index without a feed:
+`"kind":"listing"` with a `linkSelector` such as `"article h2"` and/or a `urlPattern`) or a
+**watched page** (`"kind":"page"`, optionally narrowed with a `contentSelector`): each change
+to its text becomes one digest item listing what was added and removed. Use the preview to tune
+selectors:
+
+```sh
+curl -XPOST localhost:8080/sources/preview -H 'content-type: application/json' \
+  -d '{"url":"https://www.kernel.org/","kind":"page","contentSelector":"#releases"}'
+```
+
 Feeds that only carry teasers get each new article's own page fetched and its text extracted
 (Readability); set `"fetchArticles": false` on a source to keep the feed text. The preview
 shows an `articleSample` so you can check the extraction first.

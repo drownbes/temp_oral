@@ -1,8 +1,9 @@
 import { Item, type ItemContentKeys, type ItemId, type ItemSnapshot } from '../../domain/item.ts';
 import type { ItemRepository } from '../../domain/item-repository.ts';
+import { PageSnapshot, type PageSnapshotState } from '../../domain/page-watch.ts';
 import type { RunId } from '../../domain/run-id.ts';
 import { Source, type SourceId, type SourceSnapshot } from '../../domain/source.ts';
-import type { SourceRepository } from '../../domain/source-repository.ts';
+import type { PageSnapshotRepository, SourceRepository } from '../../domain/source-repository.ts';
 import type {
   ArticleExtractor,
   CollectionStarter,
@@ -15,7 +16,11 @@ import type {
   ItemContentLocation,
   ItemContentStore,
   ItemExporter,
+  LinkExtractor,
+  ListingLink,
   PageFetcher,
+  PageText,
+  PageTextExtractor,
 } from '../ports.ts';
 
 /** In-memory adapters for testing use cases without infrastructure. */
@@ -196,5 +201,76 @@ export function mutableClock(iso = '2026-10-21T06:00:00Z') {
     set: (next: string) => {
       now = new Date(next);
     },
+  };
+}
+
+export class InMemoryPageSnapshotRepository implements PageSnapshotRepository {
+  readonly rows = new Map<SourceId, PageSnapshotState>();
+
+  async find(sourceId: SourceId): Promise<PageSnapshot | undefined> {
+    const row = this.rows.get(sourceId);
+    return row && PageSnapshot.restore(row);
+  }
+
+  async save(snapshot: PageSnapshot): Promise<void> {
+    const s = snapshot.toSnapshot();
+    this.rows.set(s.sourceId, s);
+  }
+}
+
+/** Links written as `<a href="url">title</a>`; a selector limits them to `<a class="selector">`. */
+export class FakeLinkExtractor implements LinkExtractor {
+  extract(html: string, pageUrl: string, linkSelector: string | null): ListingLink[] {
+    const links: ListingLink[] = [];
+    for (const m of html.matchAll(/<a( class="([^"]*)")? href="([^"]*)">([^<]*)<\/a>/g)) {
+      if (linkSelector && m[2] !== linkSelector) continue;
+      links.push({ url: new URL(m[3] ?? '', pageUrl).href, title: m[4] ?? '' });
+    }
+    return links;
+  }
+}
+
+/** The page text is the HTML with tags removed, one line per line; no selector support. */
+export class FakePageTextExtractor implements PageTextExtractor {
+  extract(html: string): PageText {
+    return {
+      title: /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? '',
+      text: html.replace(/<title>[^<]*<\/title>/, '').replace(/<[^>]+>/g, ''),
+    };
+  }
+}
+
+/** Serves an HTML page at `url`. */
+export function servePage(
+  fetcher: StubPageFetcher,
+  url: string,
+  body: string,
+  etag: string | null = null,
+) {
+  fetcher.responses.set(url, {
+    status: 'ok',
+    url,
+    contentType: 'text/html',
+    body,
+    validators: { etag, lastModified: null },
+  });
+}
+
+/** Everything CollectSource needs, as fakes sharing the given stores. */
+export function collectSourceDeps(deps: {
+  sources: InMemorySourceRepository;
+  items: InMemoryItemRepository;
+  fetcher: StubPageFetcher;
+  contentStore: InMemoryItemContentStore;
+  clock: { now(): Date };
+  snapshots?: InMemoryPageSnapshotRepository;
+}) {
+  return {
+    ...deps,
+    snapshots: deps.snapshots ?? new InMemoryPageSnapshotRepository(),
+    feedReader: new JsonFeedReader(),
+    linkExtractor: new FakeLinkExtractor(),
+    articleExtractor: new FakeArticleExtractor(),
+    pageTextExtractor: new FakePageTextExtractor(),
   };
 }

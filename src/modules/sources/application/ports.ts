@@ -85,3 +85,25 @@ export interface ExtractedArticle {
 export interface ArticleExtractor {
   extract(html: string, url: string): ExtractedArticle | undefined;
 }
+
+export interface ListingLink {
+  /** Absolute (resolved against the page), not yet canonical. */
+  readonly url: string;
+  /** The link text; may be empty (image links). */
+  readonly title: string;
+}
+
+/** Port: links of a listing page, optionally limited to elements matching a CSS selector. */
+export interface LinkExtractor {
+  extract(html: string, pageUrl: string, linkSelector: string | null): ListingLink[];
+}
+
+export interface PageText {
+  readonly title: string;
+  readonly text: string;
+}
+
+/** Port: the readable text of a page, or of the part matching a CSS selector. */
+export interface PageTextExtractor {
+  extract(html: string, url: string, contentSelector: string | null): PageText;
+}

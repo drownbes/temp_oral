@@ -40,8 +40,17 @@ export type ItemTable = {
   exported_in_run: string | null;
 };
 
+export type PageSnapshotTable = {
+  source_id: string;
+  url: string;
+  content_hash: string;
+  text: string;
+  taken_at: Date;
+};
+
 /** Tables owned by this context. Other contexts never query them. */
 export type SourcesTables = {
   'sources.source': SourceTable;
   'sources.item': ItemTable;
+  'sources.page_snapshot': PageSnapshotTable;
 };
