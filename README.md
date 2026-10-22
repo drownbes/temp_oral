@@ -57,9 +57,10 @@ Feeds that only carry teasers get each new article's own page fetched and its te
 (Readability); set `"fetchArticles": false` on a source to keep the feed text. The preview
 shows an `articleSample` so you can check the extraction first.
 
-A source's first collection is a **baseline**: its current entries are remembered but not
-exported, so only articles published after you add a source reach the digest. Each item is
-exported by exactly one run; re-running a run id rewrites the same export.
+A source's first collection is mostly a **baseline**: entries from the last 24 hours reach
+the digest, older (or undated) ones are only remembered, so adding a site doesn't flood the
+digest with its archive. Each item is exported by exactly one run; re-running a run id
+rewrites the same export.
 
 Digests (the `daily-digest` Temporal Schedule runs this every day at `DIGEST_CRON`):
 

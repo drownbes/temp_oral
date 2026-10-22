@@ -5,11 +5,9 @@ import { CreateSource } from './create-source.ts';
 import { PreviewSource } from './preview-source.ts';
 import {
   collectSourceDeps,
-  FakeArticleExtractor,
   InMemoryItemContentStore,
   InMemoryItemRepository,
   InMemorySourceRepository,
-  JsonFeedReader,
   mutableClock,
   StubPageFetcher,
   serveArticle,

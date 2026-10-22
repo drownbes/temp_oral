@@ -30,7 +30,7 @@ export interface CollectSourceResult {
   readonly sourceId: SourceId;
   readonly status: 'collected' | 'not-modified' | 'skipped';
   readonly newItems: number;
-  /** True on the source's first collection: items were recorded but won't be exported. */
+  /** True on the source's first collection: only posts of the last 24 hours are exported. */
   readonly baseline: boolean;
   /** Article pages fetched and read (feed teasers replaced, listing articles collected). */
   readonly articlesFetched: number;
@@ -137,10 +137,10 @@ export class CollectSource {
       source.id,
       entries.map((e) => e.url),
     );
-    const plan = planCollection(source, entries, known);
+    const plan = planCollection(source, entries, known, clock.now());
 
     const toFetch = plan.newEntries
-      .filter((e) => wantsArticlePage(settings, e.text, plan.baseline))
+      .filter((e) => wantsArticlePage(settings, e.text, e.baseline))
       .slice(0, MAX_ARTICLE_FETCHES);
     const articles = new Map<string, ArticleFetch>(
       await mapConcurrent(toFetch, ARTICLE_FETCH_CONCURRENCY, async (entry) => {
@@ -152,7 +152,7 @@ export class CollectSource {
     // A listing link is only worth storing with its article; the rest (over the cap, or
     // failed) is retried next run. Feed entries always have their own text.
     const toStore = plan.newEntries.filter(
-      (e) => settings.kind !== 'listing' || plan.baseline || articles.get(e.url)?.ok,
+      (e) => settings.kind !== 'listing' || e.baseline || articles.get(e.url)?.ok,
     );
 
     // Content first: a stored item must always have its objects
@@ -170,7 +170,7 @@ export class CollectSource {
         url: entry.url,
         title: entry.title || (article?.ok ? article.title : ''),
         publishedAt: entry.publishedAt,
-        baseline: plan.baseline,
+        baseline: entry.baseline,
         content: keys,
         now: clock.now(),
       });
@@ -180,7 +180,7 @@ export class CollectSource {
     const fetched = [...articles.values()];
     return {
       newItems: newItems.length,
-      baseline: plan.baseline,
+      baseline: plan.firstCollection,
       articlesFetched: fetched.filter((a) => a.ok).length,
       articleFailures: fetched.filter((a) => !a.ok).length,
     };
@@ -211,7 +211,7 @@ export class CollectSource {
     });
 
     const previous = await snapshots.find(source.id);
-    if (!previous || !previous.isOf(url)) {
+    if (!previous?.isOf(url)) {
       await snapshots.save(current);
       return { ...NOTHING_NEW, baseline: true };
     }

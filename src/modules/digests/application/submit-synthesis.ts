@@ -8,6 +8,7 @@ import type {
   DigestRepository,
   InterestProfileRepository,
 } from '../domain/repositories.ts';
+import { batchKey } from './batch-key.ts';
 import { type DigestState, toState } from './digest-state.ts';
 import type { DigestSynthesizer } from './ports.ts';
 import { storiesOf, storyItem } from './stories.ts';
@@ -26,7 +27,7 @@ const OVERVIEW_STORIES = 12;
 /**
  * Asks for one merged headline per multi-source story and an overview of the day's
  * highlights. With nothing to synthesise it completes right away, without a batch.
- * Idempotent like the enrichment submit: one batch per digest, keyed by digest.
+ * Idempotent like the enrichment submit: the batch is keyed by its content.
  */
 export class SubmitSynthesis {
   readonly #deps: SubmitSynthesisDeps;
@@ -60,9 +61,10 @@ export class SubmitSynthesis {
         clock.now(),
       );
     } else {
+      const interests = profile?.interests ?? '';
       const ref = await synthesizer.submit({
-        key: `digest-${digestId}-synthesis`,
-        interests: profile?.interests ?? '',
+        key: await batchKey(digestId, 'synthesis', { interests, multiSource, highlights }),
+        interests,
         stories: multiSource,
         highlights,
       });

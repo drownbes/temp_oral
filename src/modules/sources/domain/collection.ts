@@ -19,21 +19,43 @@ export function uniqueEntries<T extends WithUrl>(entries: readonly T[], baseUrl:
   return unique;
 }
 
-export interface CollectionPlan<T> {
-  /** Entries not seen before, with canonical URLs. */
-  readonly newEntries: readonly T[];
-  /** The source's first collection only records what is there, so day one isn't a flood. */
+/**
+ * On a source's first collection, posts this recent still count as new, so a source added
+ * today shows up in today's digest; older ones are only remembered.
+ */
+export const FIRST_COLLECTION_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export interface PlannedEntry {
+  /** Remembered but never handed to a digest. */
   readonly baseline: boolean;
 }
 
-/** Decides which discovered entries become new items; `knownUrls` are already stored. */
-export function planCollection<T extends WithUrl>(
+export interface CollectionPlan<T> {
+  /** Entries not seen before, with canonical URLs, each marked baseline or not. */
+  readonly newEntries: readonly (T & PlannedEntry)[];
+  /** The source's first collection: everything but recent posts becomes the baseline. */
+  readonly firstCollection: boolean;
+}
+
+/**
+ * Decides which discovered entries become new items; `knownUrls` are already stored. On the
+ * first collection, entries without a date or older than the window are the baseline, so
+ * day one isn't a flood of the archive.
+ */
+export function planCollection<T extends WithUrl & { readonly publishedAt?: Date | null }>(
   source: Source,
   entries: readonly T[],
   knownUrls: ReadonlySet<string>,
+  now: Date,
 ): CollectionPlan<T> {
+  const firstCollection = !source.isBaselined;
+  const cutoff = now.getTime() - FIRST_COLLECTION_WINDOW_MS;
+  const isBaseline = (entry: T) =>
+    firstCollection && !(entry.publishedAt && entry.publishedAt.getTime() >= cutoff);
   return {
-    newEntries: uniqueEntries(entries, source.url).filter((e) => !knownUrls.has(e.url)),
-    baseline: !source.isBaselined,
+    newEntries: uniqueEntries(entries, source.url)
+      .filter((e) => !knownUrls.has(e.url))
+      .map((e) => ({ ...e, baseline: isBaseline(e) })),
+    firstCollection,
   };
 }

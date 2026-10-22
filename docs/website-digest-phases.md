@@ -398,6 +398,16 @@ without cost.
 >   asks what changed and why it matters. There is no separate "changes" section on the page:
 >   a change is ranked like any other story (title "<page>: page changed").
 > - Preview returns `entries` + `articleSample` for listings and a `pageSample` for pages.
+>
+> Follow-ups found by running all four sources from scratch (2026-10-22):
+> - **First collection keeps the last 24 hours** (`FIRST_COLLECTION_WINDOW_MS`): a source
+>   added today appears in today's digest; older and undated entries are the baseline. Before,
+>   a new source showed nothing until it next posted. The from-scratch run produced 17 items
+>   from all four sources (Phoronix 10, 9to5Linux 5, LinuxGizmos 1, Tweag 1).
+> - **Batch keys hash their input** (`application/batch-key.ts`): a failed digest that is
+>   restarted and collects *different* items used to get the old batch's results back (same
+>   key) and lose the new items. Keys are now `digest-<id>-<step>-<hash of request>`: the same
+>   input reuses the batch it paid for, different input gets a new one.
 
 - **Domain:**
   - `PageSnapshot` aggregate; `detectChange(previous, current)` ignores whitespace-only

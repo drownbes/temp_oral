@@ -8,12 +8,10 @@ import { ExportItems } from './export-items.ts';
 import { RecordCollectionFailure } from './record-collection-failure.ts';
 import {
   collectSourceDeps,
-  FakeArticleExtractor,
   InMemoryItemContentStore,
   InMemoryItemExporter,
   InMemoryItemRepository,
   InMemorySourceRepository,
-  JsonFeedReader,
   mutableClock,
   StubPageFetcher,
 } from './testing/fakes.ts';
@@ -70,6 +68,27 @@ describe('collecting a source and exporting a run', () => {
       itemCount: 0,
     });
     expect(sources.rows.get(source.id)?.baselinedAt).toEqual(clock.now());
+  });
+
+  it('exports posts of the last 24 hours even from the first collection', async () => {
+    fetcher.serveFeed(FEED, [
+      {
+        url: 'https://example.com/fresh',
+        title: 'Fresh',
+        publishedAt: new Date('2026-10-21T01:00:00Z'),
+      },
+      {
+        url: 'https://example.com/old',
+        title: 'Old',
+        publishedAt: new Date('2026-10-19T01:00:00Z'),
+      },
+    ]);
+
+    expect(await collect('2026-10-21')).toMatchObject({ newItems: 2, baseline: true });
+    await exportRun('2026-10-21');
+    expect(exporter.exports.get('2026-10-21' as RunId)?.map((l) => l.item.title)).toEqual([
+      'Fresh',
+    ]);
   });
 
   it('exports only entries that appeared after the baseline, with their text', async () => {

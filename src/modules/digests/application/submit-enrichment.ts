@@ -2,6 +2,7 @@ import type { Clock } from '#shared/kernel/clock.ts';
 import type { DigestId } from '../domain/digest.ts';
 import { DigestNotFoundError } from '../domain/errors.ts';
 import type { DigestRepository, InterestProfileRepository } from '../domain/repositories.ts';
+import { batchKey } from './batch-key.ts';
 import { type DigestState, toState } from './digest-state.ts';
 import type { ExportedItemsReader, ItemAnalyzer, ItemEmbedder } from './ports.ts';
 
@@ -19,7 +20,8 @@ export interface SubmitEnrichmentDeps {
 /**
  * Sends the run's items for analysis and for embedding, as two batches running in
  * parallel. Idempotent twice over: a digest with batches is left alone, and each batch is
- * keyed by digest, so a crash before saving finds the same batches instead of paying twice.
+ * keyed by its content, so a crash before saving finds the same batches instead of paying
+ * twice.
  */
 export class SubmitEnrichment {
   readonly #deps: SubmitEnrichmentDeps;
@@ -39,13 +41,16 @@ export class SubmitEnrichment {
       ...item,
       text: item.text.length > maxItemChars ? `${item.text.slice(0, maxItemChars)}…` : item.text,
     }));
-    const profile = await profiles.find(ownerId);
+    const interests = (await profiles.find(ownerId))?.toSnapshot().interests ?? '';
     const analysisRef = await analyzer.submit({
-      key: `digest-${digestId}-analysis`,
-      interests: profile?.toSnapshot().interests ?? '',
+      key: await batchKey(digestId, 'analysis', { interests, items }),
+      interests,
       items,
     });
-    const embeddingRef = await embedder.submit({ key: `digest-${digestId}-embeddings`, items });
+    const embeddingRef = await embedder.submit({
+      key: await batchKey(digestId, 'embeddings', items),
+      items,
+    });
 
     digest.enrichmentSubmitted(
       { analysisBatchRef: analysisRef, embeddingBatchRef: embeddingRef },

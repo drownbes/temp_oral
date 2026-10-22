@@ -18,29 +18,35 @@ const source = () =>
   });
 
 describe('planCollection', () => {
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600_000);
   const entries = [
-    { url: '/posts/1?utm_source=rss', title: 'One' },
-    { url: 'https://example.com/posts/1', title: 'One again' },
-    { url: 'https://example.com/posts/2', title: 'Two' },
-    { url: 'mailto:me@example.com', title: 'Not an article' },
+    { url: '/posts/1?utm_source=rss', title: 'One', publishedAt: hoursAgo(2) },
+    { url: 'https://example.com/posts/1', title: 'One again', publishedAt: hoursAgo(2) },
+    { url: 'https://example.com/posts/2', title: 'Two', publishedAt: hoursAgo(30) },
+    { url: 'https://example.com/posts/3', title: 'Undated', publishedAt: null },
+    { url: 'mailto:me@example.com', title: 'Not an article', publishedAt: null },
   ];
 
-  it('marks everything as baseline on the first collection', () => {
-    const plan = planCollection(source(), entries, new Set());
-    expect(plan.baseline).toBe(true);
-    expect(plan.newEntries).toEqual([
-      { url: 'https://example.com/posts/1', title: 'One' },
-      { url: 'https://example.com/posts/2', title: 'Two' },
+  it('on the first collection, keeps the last 24 hours as new and baselines the rest', () => {
+    const plan = planCollection(source(), entries, new Set(), now);
+    expect(plan.firstCollection).toBe(true);
+    expect(plan.newEntries.map((e) => [e.url, e.title, e.baseline])).toEqual([
+      ['https://example.com/posts/1', 'One', false],
+      ['https://example.com/posts/2', 'Two', true],
+      ['https://example.com/posts/3', 'Undated', true],
     ]);
   });
 
-  it('keeps only unknown entries once baselined', () => {
+  it('keeps only unknown entries once baselined, all of them new whatever their date', () => {
     const baselined = source();
     baselined.recordSuccess({ etag: null, lastModified: null }, now);
 
-    const plan = planCollection(baselined, entries, new Set(['https://example.com/posts/1']));
-    expect(plan.baseline).toBe(false);
-    expect(plan.newEntries.map((e) => e.title)).toEqual(['Two']);
+    const plan = planCollection(baselined, entries, new Set(['https://example.com/posts/1']), now);
+    expect(plan.firstCollection).toBe(false);
+    expect(plan.newEntries.map((e) => [e.title, e.baseline])).toEqual([
+      ['Two', false],
+      ['Undated', false],
+    ]);
   });
 });
 

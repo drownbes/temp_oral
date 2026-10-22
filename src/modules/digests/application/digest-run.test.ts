@@ -94,6 +94,10 @@ describe('a digest run', () => {
     publish: new PublishDigest({ digests, entries, profiles, publisher, clock }),
   });
 
+  /** The analysis batch of a digest (the fake keys batches as `batch-<key>`). */
+  const analysisRef = (id: string) =>
+    [...analyzer.batches.keys()].find((ref) => ref.includes(`digest-${id}-analysis-`)) ?? '';
+
   /** Collects `items` and submits enrichment; batches stay pending. */
   async function startDigest(runId: string, items: CollectedItem[]) {
     const s = steps();
@@ -109,7 +113,7 @@ describe('a digest run', () => {
   /** Runs every remaining step with batches completing immediately. */
   async function finishDigest(id: DigestId) {
     const s = steps();
-    analyzer.finish(`batch-digest-${id}-analysis`);
+    analyzer.finish(analysisRef(id));
     embedder.fake.finish(id);
     await s.ingest.execute(id);
     await s.submitSynthesis.execute(id);
@@ -141,7 +145,7 @@ describe('a digest run', () => {
 
     // Both enrichment batches must finish before ingesting
     expect(await s.check.execute(id)).toEqual({ done: false });
-    analyzer.finish(`batch-digest-${id}-analysis`);
+    analyzer.finish(analysisRef(id));
     expect(await s.check.execute(id)).toEqual({ done: false });
     embedder.fake.finish(id);
     expect(await s.check.execute(id)).toEqual({ done: true });
@@ -212,7 +216,7 @@ describe('a digest run', () => {
   it('skips the synthesis batch when there is nothing to merge or summarise', async () => {
     analyzer.failures.set('a', 'model refused');
     const { id } = await startDigest('2026-10-21', [item('a')]);
-    analyzer.finish(`batch-digest-${id}-analysis`);
+    analyzer.finish(analysisRef(id));
     embedder.fake.finish(id);
     const s = steps();
     await s.ingest.execute(id);
@@ -225,7 +229,7 @@ describe('a digest run', () => {
     embedder.vectors.set('a', [1, 0]);
     embedder.vectors.set('b', [1, 0]);
     const { id, s } = await startDigest('2026-10-21', [item('a'), item('b')]);
-    analyzer.finish(`batch-digest-${id}-analysis`, {
+    analyzer.finish(analysisRef(id), {
       state: 'incomplete',
       reason: 'batch expired',
     });
@@ -246,7 +250,7 @@ describe('a digest run', () => {
 
   it('fails the digest when the analysis batch is rejected, and restarts it on the next begin', async () => {
     const { id, s } = await startDigest('2026-10-21', [item('a')]);
-    analyzer.finish(`batch-digest-${id}-analysis`, { state: 'failed', reason: 'model not found' });
+    analyzer.finish(analysisRef(id), { state: 'failed', reason: 'model not found' });
     embedder.fake.finish(id);
     await expect(s.ingest.execute(id)).rejects.toThrow(EnrichmentFailedError);
     await new MarkDigestFailed({ digests, clock }).execute(id, 'model not found');
@@ -254,6 +258,28 @@ describe('a digest run', () => {
 
     const again = await s.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' });
     expect(again).toEqual({ digestId: id, runId: '2026-10-21', status: 'collecting' });
+  });
+
+  it('gives a restarted digest with different items a new batch, not the old results', async () => {
+    const { id, s } = await startDigest('2026-10-21', [item('a')]);
+    analyzer.finish(analysisRef(id), { state: 'failed', reason: 'model not found' });
+    await new MarkDigestFailed({ digests, clock }).execute(id, 'model not found');
+
+    // The day runs again and now also collects b
+    await s.begin.execute({ ownerId: OWNER, runId: '2026-10-21', startedAt: '' });
+    reader.exports.set('sources/exports/2026-10-21.jsonl', [item('a'), item('b')]);
+    await s.record.execute(id, {
+      exportKey: 'sources/exports/2026-10-21.jsonl',
+      itemCount: 2,
+      failedSources: [],
+    });
+    await s.submit.execute(id);
+
+    expect(analyzer.submitted.map((r) => r.items.map((i) => i.itemId))).toEqual([
+      ['a'],
+      ['a', 'b'],
+    ]);
+    expect(embedder.fake.submitted).toHaveLength(2);
   });
 
   it('does not let a late digest overwrite a newer published day', async () => {
