@@ -66,7 +66,7 @@ const EnvSchema = z
     // Article text sent to the LLM per item; longer texts are cut
     DIGEST_MAX_ITEM_CHARS: z.coerce.number().int().positive().default(16_000),
     // Cosine similarity at which two items count as the same story (embedding-model specific)
-    DIGEST_CLUSTER_THRESHOLD: z.coerce.number().min(0).max(1).default(0.63),
+    DIGEST_CLUSTER_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75),
   })
   .superRefine((env, ctx) => {
     if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {

@@ -184,7 +184,7 @@ for testing), `OPENAI_ITEM_MODEL` (default
 day it covers), `DIGEST_PUBLISH_BUCKET` / `DIGEST_PUBLISH_KEY` (where the page goes; bucket
 defaults to `S3_BUCKET`), `DIGEST_MAX_ITEM_CHARS` (article text sent to the LLM per item).
 Grouping: `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`),
-`OPENAI_EMBEDDING_DIMENSIONS` (512), `DIGEST_CLUSTER_THRESHOLD` (0.63: cosine similarity at
+`OPENAI_EMBEDDING_DIMENSIONS` (512), `DIGEST_CLUSTER_THRESHOLD` (0.75: cosine similarity at
 which items from different sources count as the same story; a story never holds two items
 of one source). Merged headlines and the overview use `OPENAI_SYNTHESIS_MODEL` (default
 `gpt-6-luna`).

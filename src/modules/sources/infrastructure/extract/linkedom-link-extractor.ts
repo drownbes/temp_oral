@@ -18,7 +18,11 @@ interface DomElement {
  */
 export class LinkedomLinkExtractor implements LinkExtractor {
   extract(html: string, pageUrl: string, linkSelector: string | null): ListingLink[] {
-    const document = parseHTML(html).document as unknown as DomElement;
+    const document = parseHTML(html).document as unknown as DomElement & {
+      documentElement: DomElement | null;
+    };
+    // Not HTML (plain text, JSON): no links rather than a crash
+    if (!document.documentElement) return [];
     let anchors: DomElement[];
     try {
       anchors = linkSelector

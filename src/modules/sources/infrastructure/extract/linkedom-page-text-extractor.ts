@@ -13,12 +13,21 @@ interface DomElement {
   querySelectorAll(selector: string): Iterable<DomElement>;
 }
 
-/** Text of a watched page: the elements matching `contentSelector`, or the whole body. */
+/**
+ * Text of a watched page: the elements matching `contentSelector`, or the whole body.
+ * Plain-text documents are taken as they are.
+ */
 export class LinkedomPageTextExtractor implements PageTextExtractor {
   extract(html: string, _url: string, contentSelector: string | null): PageText {
     const { document } = parseHTML(html) as unknown as {
-      document: DomElement & { title: string; body: DomElement | null };
+      document: DomElement & {
+        title: string;
+        body: DomElement | null;
+        documentElement: DomElement | null;
+      };
     };
+    // Not HTML at all (a plain-text file such as a VERSION or changelog): watch it as is
+    if (!document.documentElement) return { title: '', text: html };
     const title = decodeEntities(document.title ?? '').trim();
     let parts: string[];
     try {

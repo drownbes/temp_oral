@@ -307,7 +307,7 @@ without cost.
 >   Restricting a story to one item per source removes those false merges; among cross-source
 >   pairs the data separated cleanly (true ≥ 0.649, false ≤ 0.619). The lead takes the
 >   *most similar* item of each other source.
-> - Threshold `DIGEST_CLUSTER_THRESHOLD` defaults to **0.63** (text-embedding-3-small at 512
+> - Threshold `DIGEST_CLUSTER_THRESHOLD` defaulted to **0.63** here, later raised to 0.75 (text-embedding-3-small at 512
 >   dimensions). The margin was thin on the first sample; revisit with more days of data
 >   (`GET /digests/:id` shows the stories; similarities can be recomputed from
 >   `digest_entry.embedding`).
@@ -408,6 +408,21 @@ without cost.
 >   restarted and collects *different* items used to get the old batch's results back (same
 >   key) and lose the new items. Keys are now `digest-<id>-<step>-<hash of request>`: the same
 >   input reuses the batch it paid for, different input gets a new one.
+>
+> End-to-end test with 20 sources (16 feeds, 2 listings, 2 watched pages; 2026-10-22):
+> 80 items, 75 s in direct mode, about $0.02. One source (Fedora Magazine) answered 503 and
+> was reported as failed while the run carried on.
+> - **Cluster threshold raised to 0.75.** With full article text (phase 4), same-story pairs
+>   across sources scored 0.80–0.94 and related-but-different stories at most 0.72 (SteamVR
+>   vs. Steam client, a Ryzen review vs. a Ryzen relaunch story, daily security-update lists).
+>   0.63 had been tuned on teasers and produced 3 false merges out of 9; anything from 0.72
+>   to 0.78 gave the same 6 correct stories (KeePassXC across 4 sources, the Steam client
+>   update across 3, `__get_user()` removal on LWN + Phoronix, PipeWire, Agama, DietPi).
+> - Watched pages may be plain text (e.g. Mesa's `VERSION` file): the page extractor no longer
+>   crashes on documents without an `<html>` element, and listings of such documents have
+>   no links.
+> - Note: token usage on a re-run includes reused results (what the results cost), not only
+>   what that run newly spent.
 
 - **Domain:**
   - `PageSnapshot` aggregate; `detectChange(previous, current)` ignores whitespace-only

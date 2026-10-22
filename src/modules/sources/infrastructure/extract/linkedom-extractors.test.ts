@@ -33,6 +33,10 @@ describe('LinkedomLinkExtractor', () => {
   it('rejects an invalid selector as a configuration error', () => {
     expect(() => extractor.extract(page('listing.html'), BLOG, '[[')).toThrow(InvalidSourceError);
   });
+
+  it('finds no links in a document that is not HTML', () => {
+    expect(extractor.extract('26.3.0-devel\n', BLOG, null)).toEqual([]);
+  });
 });
 
 describe('LinkedomPageTextExtractor', () => {
@@ -62,6 +66,13 @@ describe('LinkedomPageTextExtractor', () => {
     expect(text).toContain('FAQ');
     expect(text).toContain('operated by');
     expect(text).not.toContain('tracking');
+  });
+
+  it('watches a plain-text document as it is', () => {
+    expect(extractor.extract('26.3.0-devel\n', 'https://example.org/VERSION', null)).toEqual({
+      title: '',
+      text: '26.3.0-devel\n',
+    });
   });
 
   it('rejects an invalid selector as a configuration error', () => {
