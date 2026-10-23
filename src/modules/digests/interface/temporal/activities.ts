@@ -2,6 +2,11 @@ import { failOnDomainError } from '#shared/infrastructure/temporal/errors.ts';
 import type { BeginDigest, BeginDigestCommand } from '../../application/begin-digest.ts';
 import type { CheckEnrichment } from '../../application/check-enrichment.ts';
 import type { CheckSynthesis } from '../../application/check-synthesis.ts';
+import type {
+  ComposeNotification,
+  DigestEvent,
+  DigestNotification,
+} from '../../application/compose-notification.ts';
 import type { DigestState } from '../../application/digest-state.ts';
 import type { IngestEnrichment } from '../../application/ingest-enrichment.ts';
 import type { IngestSynthesis } from '../../application/ingest-synthesis.ts';
@@ -24,6 +29,7 @@ export function createDigestActivities(useCases: {
   ingestSynthesis: IngestSynthesis;
   publishDigest: PublishDigest;
   markDigestFailed: MarkDigestFailed;
+  composeNotification: ComposeNotification;
 }) {
   const id = (digestId: string) => digestId as DigestId;
   return {
@@ -56,6 +62,9 @@ export function createDigestActivities(useCases: {
     },
     markDigestFailed(digestId: string, reason: string): Promise<void> {
       return failOnDomainError(() => useCases.markDigestFailed.execute(id(digestId), reason));
+    },
+    composeNotification(digestId: string, event: DigestEvent): Promise<DigestNotification | null> {
+      return failOnDomainError(() => useCases.composeNotification.execute(id(digestId), event));
     },
   };
 }

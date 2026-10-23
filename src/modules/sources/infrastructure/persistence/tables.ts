@@ -21,6 +21,7 @@ export type SourceTable = {
   last_collected_at: Date | null;
   consecutive_failures: number;
   last_error: string | null;
+  disabled_reason: string | null;
   baselined_at: Date | null;
   archived_at: Date | null;
   created_at: Date;

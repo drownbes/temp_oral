@@ -28,7 +28,7 @@ const options = { model: 'gpt-test', reasoningEffort: 'low' };
 describe('OpenAiItemAnalyzer', () => {
   it('submits one strict structured-output chat completion per item', async () => {
     const client = new FakeBatchClient();
-    await new OpenAiItemAnalyzer(client, options).submit({
+    await new OpenAiItemAnalyzer(client, options, undefined).submit({
       key: 'digest-1-enrichment',
       interests: 'Linux graphics drivers',
       items: [item],
@@ -56,7 +56,7 @@ describe('OpenAiItemAnalyzer', () => {
 
   it('asks to summarise what changed for watched-page changes', async () => {
     const client = new FakeBatchClient();
-    await new OpenAiItemAnalyzer(client, options).submit({
+    await new OpenAiItemAnalyzer(client, options, undefined).submit({
       key: 'k',
       interests: '',
       items: [{ ...item, kind: 'change', text: 'Added:\n+ stable: 7.3.5' }],
@@ -86,7 +86,7 @@ describe('OpenAiItemAnalyzer', () => {
       }),
     ];
 
-    const results = await new OpenAiItemAnalyzer(client, options).results('batch_1');
+    const results = await new OpenAiItemAnalyzer(client, options, undefined).results('batch_1');
 
     expect(results.analyses.get('ok')).toEqual({
       summary: 'Mesa shipped.',
@@ -101,7 +101,7 @@ describe('OpenAiItemAnalyzer', () => {
       errored: 'rate limited',
       cut: 'answer cut off (token limit)',
     });
-    expect(results.usage).toEqual({ inputTokens: 600, outputTokens: 150 });
+    expect(results.usage).toEqual({ inputTokens: 600, outputTokens: 150, costUsd: null });
   });
 
   it.each([
@@ -116,6 +116,8 @@ describe('OpenAiItemAnalyzer', () => {
   ] as const)('maps batch %o to %o', async (batch, state) => {
     const client = new FakeBatchClient();
     client.batch = batch as Partial<Batch>;
-    expect(await new OpenAiItemAnalyzer(client, options).status('batch_1')).toEqual(state);
+    expect(await new OpenAiItemAnalyzer(client, options, undefined).status('batch_1')).toEqual(
+      state,
+    );
   });
 });

@@ -4,6 +4,7 @@ import { EnrichmentFailedError } from '../domain/errors.ts';
 import { BeginDigest } from './begin-digest.ts';
 import { CheckEnrichment } from './check-enrichment.ts';
 import { CheckSynthesis } from './check-synthesis.ts';
+import { ComposeNotification } from './compose-notification.ts';
 import { IngestEnrichment } from './ingest-enrichment.ts';
 import { IngestSynthesis } from './ingest-synthesis.ts';
 import { UpdateInterestProfile } from './interest-profile.ts';
@@ -82,10 +83,12 @@ describe('a digest run', () => {
     ingest: new IngestEnrichment({
       digests,
       entries,
+      profiles,
       reader,
       analyzer,
       embedder,
       clock,
+      maxItemChars: 10,
       clusterThreshold: 0.9,
       earlierCoverage: { days: 7, repeat: 0.97, followUp: 0.85 },
     }),
@@ -98,6 +101,9 @@ describe('a digest run', () => {
   /** The analysis batch of a digest (the fake keys batches as `batch-<key>`). */
   const analysisRef = (id: string) =>
     [...analyzer.batches.keys()].find((ref) => ref.includes(`digest-${id}-analysis-`)) ?? '';
+  /** Its one retry batch for items the analysis batch could not analyse. */
+  const reanalysisRef = (id: string) =>
+    [...analyzer.batches.keys()].find((ref) => ref.includes(`digest-${id}-reanalysis-`)) ?? '';
 
   /** Collects `items` and submits enrichment; batches stay pending. */
   async function startDigest(runId: string, items: CollectedItem[]) {
@@ -116,7 +122,10 @@ describe('a digest run', () => {
     const s = steps();
     analyzer.finish(analysisRef(id));
     embedder.fake.finish(id);
-    await s.ingest.execute(id);
+    if ((await s.ingest.execute(id)).status === 'enriching') {
+      analyzer.finish(reanalysisRef(id));
+      await s.ingest.execute(id);
+    }
     await s.submitSynthesis.execute(id);
     synthesizer.fake.finish(id);
     await s.ingestSynthesis.execute(id);
@@ -151,6 +160,11 @@ describe('a digest run', () => {
     embedder.fake.finish(id);
     expect(await s.check.execute(id)).toEqual({ done: true });
 
+    // d was refused: it gets one more try before the digest moves on
+    expect(await s.ingest.execute(id)).toMatchObject({ status: 'enriching' });
+    expect(analyzer.submitted[1]?.items.map((i) => i.itemId)).toEqual(['d']);
+    expect(await s.check.execute(id)).toEqual({ done: false });
+    analyzer.finish(reanalysisRef(id));
     expect(await s.ingest.execute(id)).toMatchObject({ status: 'synthesizing' });
     expect(digests.rows.get(id)?.clusters.map((c) => c.itemIds)).toEqual([
       ['a', 'b'],
@@ -182,8 +196,8 @@ describe('a digest run', () => {
     expect(digests.rows.get(id)).toMatchObject({
       analyzedCount: 3,
       failedItemCount: 1,
-      // analysis 4×100 + embeddings 4×5 + synthesis 50 in; analysis 10 + synthesis 20 out
-      usage: { inputTokens: 470, outputTokens: 30 },
+      // analysis 4×100 + reanalysis 1×100 + embeddings 4×5 + synthesis 50 in; 10 + 10 + 20 out
+      usage: { inputTokens: 570, outputTokens: 40 },
     });
   });
 
@@ -221,6 +235,8 @@ describe('a digest run', () => {
     embedder.fake.finish(id);
     const s = steps();
     await s.ingest.execute(id);
+    analyzer.finish(reanalysisRef(id));
+    await s.ingest.execute(id);
 
     expect(await s.submitSynthesis.execute(id)).toMatchObject({ status: 'rendering' });
     expect(synthesizer.fake.submitted).toEqual([]);
@@ -236,6 +252,9 @@ describe('a digest run', () => {
     });
     embedder.fake.finish(id, { state: 'failed', reason: 'quota' });
     await s.ingest.execute(id);
+    // b, left out of the expired batch, is retried; the retry is rejected as a whole
+    analyzer.finish(reanalysisRef(id), { state: 'failed', reason: 'quota' });
+    await s.ingest.execute(id);
 
     // The fake analyses only the first item of an incomplete batch; no embeddings → no grouping
     expect(digests.rows.get(id)).toMatchObject({ analyzedCount: 1, failedItemCount: 1 });
@@ -247,6 +266,41 @@ describe('a digest run', () => {
     await s.ingestSynthesis.execute(id);
     expect(await s.publish.execute(id)).toMatchObject({ status: 'published' });
     expect(publisher.pages[0]?.overview).toBeNull();
+  });
+
+  it('recovers items the first batch failed or left out with one retry batch', async () => {
+    analyzer.failures.set('b', 'malformed JSON answer');
+    const { id, s } = await startDigest('2026-10-21', [item('a'), item('b'), item('c')]);
+    // Expired after its first item: c was never processed, b failed
+    analyzer.finish(analysisRef(id), { state: 'incomplete', reason: 'batch expired' });
+    embedder.fake.finish(id);
+    expect(await s.ingest.execute(id)).toMatchObject({ status: 'enriching' });
+
+    // The retry is asked about the unanalysed items only, and this time they work out
+    analyzer.failures.clear();
+    const retry = analyzer.submitted.at(-1);
+    expect(retry?.items.map((i) => i.itemId)).toEqual(['b', 'c']);
+    analyzer.finish(reanalysisRef(id));
+    expect(await s.ingest.execute(id)).toMatchObject({ status: 'synthesizing' });
+    expect(digests.rows.get(id)).toMatchObject({ analyzedCount: 3, failedItemCount: 0 });
+
+    // Never more than one retry
+    await s.ingest.execute(id);
+    expect(analyzer.submitted).toHaveLength(2);
+  });
+
+  it("shows what still fails after the retry by title, with the retry's reason", async () => {
+    analyzer.failures.set('a', 'refused: unsafe content');
+    const { id, s } = await startDigest('2026-10-21', [item('a'), item('b')]);
+    analyzer.finish(analysisRef(id));
+    embedder.fake.finish(id);
+    await s.ingest.execute(id);
+    analyzer.failures.set('a', 'refused: still unsafe');
+    analyzer.finish(reanalysisRef(id));
+    await s.ingest.execute(id);
+
+    expect(digests.rows.get(id)).toMatchObject({ analyzedCount: 1, failedItemCount: 1 });
+    expect(entries.rows.get(`${id}/a`)?.failure).toBe('refused: still unsafe');
   });
 
   it('fails the digest when the analysis batch is rejected, and restarts it on the next begin', async () => {
@@ -345,6 +399,67 @@ describe('a digest run', () => {
     await finishDigest(today.id);
 
     expect(digests.rows.get(today.id)?.clusters.map((c) => c.earlier)).toEqual([null, null]);
+  });
+
+  describe('notifications', () => {
+    const compose = ({ recipient }: { recipient?: string } = { recipient: 'reader@example.com' }) =>
+      new ComposeNotification({
+        digests,
+        entries,
+        profiles,
+        recipient,
+        pageUrl: 'https://digest.example.com/',
+      });
+
+    it('sums up a published digest: overview, top headlines, problems, cost and link', async () => {
+      embedder.vectors.set('a', [1, 0]);
+      embedder.vectors.set('b', [0.99, 0.1]);
+      const { id } = await startDigest('2026-10-21', [
+        item('a'),
+        item('b', '9to5Linux'),
+        item('c', 'Linuxiac'),
+      ]);
+      await finishDigest(id);
+      // Pretend one source failed and was stopped during collection
+      const row = digests.rows.get(id);
+      if (row) {
+        digests.rows.set(id, {
+          ...row,
+          failedSources: [
+            { sourceId: 's-9', sourceName: 'Old blog', reason: 'HTTP 410', disabled: true },
+          ],
+        });
+      }
+
+      const message = await compose().execute(id, 'published');
+      expect(message).toMatchObject({
+        idempotencyKey: 'digest-published:default:2026-10-21',
+        recipient: 'reader@example.com',
+        subject: 'Digest 2026-10-21: 2 highlights from 3 items',
+      });
+      expect(message?.body).toBe(
+        [
+          'Overview of Title a, Title c',
+          'Highlights:\n- Merged: Title a (Phoronix, 9to5Linux)\n- Title c (Linuxiac)',
+          'Could not collect 1 source:\n- Old blog: HTTP 410 (stopped after repeated failures; enable it again once fixed)',
+          'LLM cost: about $0.01.',
+          'Read it: https://digest.example.com/',
+        ].join('\n\n'),
+      );
+    });
+
+    it('explains a failure, and stays silent without a recipient or for a superseded day', async () => {
+      const { id } = await startDigest('2026-10-21', [item('a')]);
+      await new MarkDigestFailed({ digests, clock }).execute(id, 'model not found');
+      expect(await compose().execute(id, 'failed')).toMatchObject({
+        idempotencyKey: 'digest-failed:default:2026-10-21',
+        subject: 'Digest 2026-10-21 failed',
+        body: expect.stringContaining('failed: model not found'),
+      });
+      expect(await compose({}).execute(id, 'failed')).toBeNull();
+      // Not published: nothing to announce
+      expect(await compose().execute(id, 'published')).toBeNull();
+    });
   });
 
   it('derives the run id from the start time in the digest time zone', async () => {

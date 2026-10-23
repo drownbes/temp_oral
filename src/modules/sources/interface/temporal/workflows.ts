@@ -67,8 +67,14 @@ export const collectSourcesWorkflow: CollectSourcesWorkflow = async ({
     } catch (err) {
       const reason = failureReason(err);
       log.warn('source collection failed', { sourceId, runId, reason });
-      await recordCollectionFailure(sourceId, reason);
-      failedSources.push({ sourceId, reason });
+      // No browser worker is a deployment problem, not the source's: not held against it
+      const countsAgainstSource = !isPickupTimeout(errorCause(err));
+      const { sourceName, disabled } = await recordCollectionFailure(
+        sourceId,
+        reason,
+        countsAgainstSource,
+      );
+      failedSources.push({ sourceId, sourceName, reason, disabled });
     }
   });
 
@@ -91,7 +97,7 @@ export async function previewSourceWorkflow(command: PreviewSourceCommand): Prom
   try {
     return await previewSource(command);
   } catch (err) {
-    const cause = err instanceof Error ? err.cause : undefined;
+    const cause = errorCause(err);
     const type = isPickupTimeout(cause)
       ? BROWSER_UNAVAILABLE
       : cause instanceof ApplicationFailure
@@ -114,9 +120,13 @@ async function forEachConcurrent<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
 }
 
-/** ActivityFailure wraps the activity's own error; report that one. */
+/** ActivityFailure wraps the activity's own error (or timeout); that is the one to judge. */
+function errorCause(err: unknown): unknown {
+  return err instanceof Error && err.cause instanceof Error ? err.cause : err;
+}
+
 function failureReason(err: unknown): string {
-  const cause = err instanceof Error && err.cause instanceof Error ? err.cause : err;
+  const cause = errorCause(err);
   if (isPickupTimeout(cause)) {
     return 'no browser worker took the page (is a worker running with BROWSER_FETCH_ENABLED=true?)';
   }

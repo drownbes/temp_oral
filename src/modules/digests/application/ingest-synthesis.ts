@@ -1,5 +1,5 @@
 import type { Clock } from '#shared/kernel/clock.ts';
-import type { DigestId } from '../domain/digest.ts';
+import { type DigestId, NO_USAGE } from '../domain/digest.ts';
 import { DigestNotFoundError, InvalidDigestStateError } from '../domain/errors.ts';
 import type { DigestRepository } from '../domain/repositories.ts';
 import { type DigestState, toState } from './digest-state.ts';
@@ -38,7 +38,7 @@ export class IngestSynthesis {
     }
     const results =
       batch.state === 'failed'
-        ? { stories: new Map(), overview: null, usage: { inputTokens: 0, outputTokens: 0 } }
+        ? { stories: new Map(), overview: null, usage: NO_USAGE }
         : await synthesizer.results(synthesisBatchRef);
 
     digest.completeSynthesis(results, clock.now());

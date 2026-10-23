@@ -48,6 +48,7 @@ const page = (overrides: Partial<DigestPage> = {}): DigestPage => ({
   itemCount: 2,
   analyzedCount: 1,
   failedItemCount: 1,
+  usage: { inputTokens: 134_260, outputTokens: 14_152, costUsd: 0.0205 },
   ...overrides,
 });
 
@@ -116,7 +117,7 @@ describe('renderDigestPage', () => {
             }),
           ]),
         ],
-        failedSources: [{ sourceId: 's', reason: '<i>HTTP 500</i>' }],
+        failedSources: [{ sourceId: 's', sourceName: '<b>Feed</b>', reason: '<i>HTTP 500</i>' }],
       }),
       { timezone: 'UTC' },
     );
@@ -163,6 +164,38 @@ describe('renderDigestPage', () => {
     expect(html).toContain('DietPi 10.8 again</a> (LXer)');
     // Not among the stories
     expect(html.split('<article>')).toHaveLength(2);
+  });
+
+  it('shows what the LLM calls cost, or that the cost is unknown', () => {
+    expect(renderDigestPage(page(), { timezone: 'UTC' })).toContain(
+      '<p>LLM: 134k tokens in, 14k out, about $0.02.</p>',
+    );
+    const cheap = { inputTokens: 900, outputTokens: 40, costUsd: 0.0001 };
+    expect(renderDigestPage(page({ usage: cheap }), { timezone: 'UTC' })).toContain(
+      'LLM: 900 tokens in, 40 out, less than $0.01.',
+    );
+    const unknown = { ...cheap, costUsd: null };
+    expect(renderDigestPage(page({ usage: unknown }), { timezone: 'UTC' })).toContain(
+      'cost unknown (a model has no price set)',
+    );
+    const none = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    expect(renderDigestPage(page({ usage: none }), { timezone: 'UTC' })).not.toContain('LLM:');
+  });
+
+  it('names failed sources and flags the ones that were stopped', () => {
+    const html = renderDigestPage(
+      page({
+        failedSources: [
+          { sourceId: 's-1', sourceName: 'Fedora Magazine', reason: 'HTTP 503' },
+          { sourceId: 's-2', sourceName: 'Old blog', reason: 'HTTP 410', disabled: true },
+          { sourceId: 's-3', reason: 'timeout' },
+        ],
+      }),
+      { timezone: 'UTC' },
+    );
+    expect(html).toContain(
+      'Could not collect 3 sources: Fedora Magazine (HTTP 503); Old blog (HTTP 410) <strong>— stopped after repeated failures; enable it again once fixed</strong>; (timeout).',
+    );
   });
 
   it('says so when nothing is new', () => {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { TokenUsage } from '../../domain/digest.ts';
 import type { BatchResultLine } from './openai-batch-client.ts';
+import type { TokenCounts } from './pricing.ts';
 
 export interface ChatModelOptions {
   readonly model: string;
@@ -41,10 +41,10 @@ const ChatCompletionBody = z.object({
 });
 
 export type ChatAnswer<T> =
-  | { readonly ok: true; readonly value: T; readonly usage: TokenUsage }
-  | { readonly ok: false; readonly failure: string; readonly usage: TokenUsage };
+  | { readonly ok: true; readonly value: T; readonly usage: TokenCounts }
+  | { readonly ok: false; readonly failure: string; readonly usage: TokenCounts };
 
-const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+const NO_USAGE: TokenCounts = { inputTokens: 0, outputTokens: 0 };
 
 /** Reads one batch result line as a JSON answer; every kind of bad answer becomes a failure. */
 export function readChatAnswer<T>(line: BatchResultLine, schema: z.ZodType<T>): ChatAnswer<T> {
@@ -71,7 +71,7 @@ export function readChatAnswer<T>(line: BatchResultLine, schema: z.ZodType<T>): 
   }
 }
 
-export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+export function addCounts(a: TokenCounts, b: TokenCounts): TokenCounts {
   return {
     inputTokens: a.inputTokens + b.inputTokens,
     outputTokens: a.outputTokens + b.outputTokens,

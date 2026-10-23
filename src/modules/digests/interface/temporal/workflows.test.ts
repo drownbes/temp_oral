@@ -4,6 +4,7 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SOURCES_TASK_QUEUE } from '#modules/sources/contracts/index.ts';
+import type { DigestEvent, DigestNotification } from '../../application/compose-notification.ts';
 import type { DigestState } from '../../application/digest-state.ts';
 import type { DigestStatus } from '../../domain/digest.ts';
 import type { DigestActivities } from './activities.ts';
@@ -18,12 +19,15 @@ function fakeDigest(options: {
   itemCount?: number;
   pollsUntilDone?: number;
   ingest?: () => Promise<void>;
+  /** The message for an event; by default one for every event. */
+  notification?: (event: DigestEvent) => Promise<DigestNotification | null>;
 }) {
   const calls: string[] = [];
   let status: DigestStatus = options.initial ?? 'collecting';
   let polls = 0;
   const state = (): DigestState => ({ digestId: 'd-1', runId: '2026-10-21', status });
   const failures: string[] = [];
+  const notifications: DigestEvent[] = [];
   const activities: DigestActivities = {
     beginDigest: async (command) => {
       calls.push(`begin:${command.runId ?? 'scheduled'}`);
@@ -69,8 +73,18 @@ function fakeDigest(options: {
     markDigestFailed: async (_id, reason) => {
       failures.push(reason);
     },
+    composeNotification: async (_id, event) => {
+      notifications.push(event);
+      if (options.notification) return options.notification(event);
+      return {
+        idempotencyKey: `digest-${event}:default:2026-10-21`,
+        recipient: 'reader@example.com',
+        subject: `Digest ${event}`,
+        body: 'body',
+      };
+    },
   };
-  return { activities, calls, failures };
+  return { activities, calls, failures, notifications };
 }
 
 describe('dailyDigestWorkflow', () => {
@@ -133,7 +147,16 @@ describe('dailyDigestWorkflow', () => {
         const timeout = e.timerStartedEventAttributes?.startToFireTimeout;
         return timeout ? [Number(timeout.seconds ?? 0) * 1000 + (timeout.nanos ?? 0) / 1e6] : [];
       });
-    return { result, collectedRuns, timers };
+    /** The notification child the digest started for `event`, if it started one. */
+    const notification = (event: DigestEvent) =>
+      env.client.workflow
+        .getHandle(`${handle.workflowId}-notify-${event}`)
+        .describe()
+        .then(
+          (d) => ({ type: d.type, taskQueue: d.taskQueue }),
+          () => null,
+        );
+    return { result, collectedRuns, timers, notification };
   }
 
   it('collects through the sources contract, waits for the batch, then publishes', async () => {
@@ -159,6 +182,33 @@ describe('dailyDigestWorkflow', () => {
     ]);
     // Backs off through the intervals, then keeps repeating the last one
     expect(await timers()).toEqual([10, 20, 30, 30]);
+  });
+
+  it('hands a notification to the notifications context once published', async () => {
+    const digest = fakeDigest({});
+    const { result, notification } = await run(digest.activities);
+
+    await result;
+    expect(digest.notifications).toEqual(['published']);
+    expect(await notification('published')).toEqual({
+      type: 'sendNotificationWorkflow',
+      taskQueue: 'notifications',
+    });
+  });
+
+  it('sends nothing without a recipient, and never fails the digest over a notification', async () => {
+    const quiet = fakeDigest({ notification: async () => null });
+    const first = await run(quiet.activities);
+    await first.result;
+    expect(await first.notification('published')).toBeNull();
+
+    const broken = fakeDigest({
+      notification: async () => {
+        throw ApplicationFailure.nonRetryable('mail server down');
+      },
+    });
+    const second = await run(broken.activities);
+    await expect(second.result).resolves.toMatchObject({ status: 'published' });
   });
 
   it('goes straight to publishing when nothing was collected', async () => {
@@ -205,10 +255,12 @@ describe('dailyDigestWorkflow', () => {
         throw ApplicationFailure.nonRetryable('batch failed: model not found', 'ENRICHMENT_FAILED');
       },
     });
-    const { result } = await run(digest.activities);
+    const { result, notification } = await run(digest.activities);
 
     await expect(result).rejects.toThrow('Workflow execution failed');
     expect(digest.failures).toEqual(['batch failed: model not found']);
+    expect(digest.notifications).toEqual(['failed']);
+    expect(await notification('failed')).toMatchObject({ type: 'sendNotificationWorkflow' });
     expect(digest.calls).not.toContain('publish');
   });
 });

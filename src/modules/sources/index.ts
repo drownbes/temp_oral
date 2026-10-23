@@ -107,7 +107,11 @@ export const sourcesModule: ModuleDefinition = {
         activities: createSourceActivities({
           listCollectableSources: new ListCollectableSources(sources),
           collectSource: collectSource(fetcher),
-          recordCollectionFailure: new RecordCollectionFailure({ repository: sources, clock }),
+          recordCollectionFailure: new RecordCollectionFailure({
+            repository: sources,
+            clock,
+            maxConsecutiveFailures: deps.config.sources.maxConsecutiveFailures,
+          }),
           exportItems: new ExportItems({
             items,
             sources,

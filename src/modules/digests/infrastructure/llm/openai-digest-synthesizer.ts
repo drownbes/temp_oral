@@ -5,10 +5,15 @@ import type {
   SynthesisRequest,
   SynthesisResults,
 } from '../../application/ports.ts';
-import type { TokenUsage } from '../../domain/digest.ts';
 import type { StoryText } from '../../domain/story.ts';
-import { addUsage, type ChatModelOptions, chatRequest, readChatAnswer } from './chat-completion.ts';
+import {
+  addCounts,
+  type ChatModelOptions,
+  chatRequest,
+  readChatAnswer,
+} from './chat-completion.ts';
 import { type BatchClient, toBatchState } from './openai-batch-client.ts';
+import { type ModelPrice, priced, type TokenCounts } from './pricing.ts';
 import {
   OVERVIEW_SCHEMA,
   overviewSystemPrompt,
@@ -28,10 +33,13 @@ const STORY_PREFIX = 'story:';
 export class OpenAiDigestSynthesizer implements DigestSynthesizer {
   readonly #batches: BatchClient;
   readonly #options: ChatModelOptions;
+  readonly #price: ModelPrice | undefined;
 
-  constructor(batches: BatchClient, options: ChatModelOptions) {
+  /** `price` of `options.model`; usage of a model without one has an unknown cost. */
+  constructor(batches: BatchClient, options: ChatModelOptions, price: ModelPrice | undefined) {
     this.#batches = batches;
     this.#options = options;
+    this.#price = price;
   }
 
   submit(request: SynthesisRequest): Promise<string> {
@@ -70,19 +78,19 @@ export class OpenAiDigestSynthesizer implements DigestSynthesizer {
     const batch = await this.#batches.retrieve(batchRef);
     const stories = new Map<string, StoryText>();
     let overview: string | null = null;
-    let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+    let counts: TokenCounts = { inputTokens: 0, outputTokens: 0 };
 
     for (const line of await this.#batches.results(batch)) {
       if (line.customId === OVERVIEW_ID) {
         const answer = readChatAnswer(line, OverviewJson);
-        usage = addUsage(usage, answer.usage);
+        counts = addCounts(counts, answer.usage);
         if (answer.ok) overview = answer.value.overview;
       } else if (line.customId.startsWith(STORY_PREFIX)) {
         const answer = readChatAnswer(line, StoryJson);
-        usage = addUsage(usage, answer.usage);
+        counts = addCounts(counts, answer.usage);
         if (answer.ok) stories.set(line.customId.slice(STORY_PREFIX.length), answer.value);
       }
     }
-    return { stories, overview, usage };
+    return { stories, overview, usage: priced(counts, this.#price, batchRef) };
   }
 }

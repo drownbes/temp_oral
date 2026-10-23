@@ -12,7 +12,7 @@ const collection = (itemCount: number) => ({
   failedSources: [{ sourceId: 's-9', reason: 'HTTP 404' }],
 });
 const refs = { analysisBatchRef: 'batch_a', embeddingBatchRef: 'batch_e' };
-const usage = { inputTokens: 1000, outputTokens: 200 };
+const usage = { inputTokens: 1000, outputTokens: 200, costUsd: 0.5 };
 const cluster = {
   id: 'i-1',
   itemIds: ['i-1', 'i-2'],
@@ -37,7 +37,7 @@ describe('Digest', () => {
       {
         stories: new Map([['i-1', { headline: 'Merged', summary: 'Both say so.' }]]),
         overview: '  A quiet day.  ',
-        usage: { inputTokens: 50, outputTokens: 20 },
+        usage: { inputTokens: 50, outputTokens: 20, costUsd: 0.25 },
       },
       now,
     );
@@ -54,7 +54,7 @@ describe('Digest', () => {
       failedItemCount: 1,
       clusters: [{ ...cluster, headline: 'Merged', summary: 'Both say so.' }],
       overview: 'A quiet day.',
-      usage: { inputTokens: 1050, outputTokens: 220 },
+      usage: { inputTokens: 1050, outputTokens: 220, costUsd: 0.75 },
     });
     expect(digest.isFinished).toBe(true);
   });
@@ -74,6 +74,21 @@ describe('Digest', () => {
     digest.completeEnrichment(enrichment, now);
     digest.synthesisSubmitted('batch_s', now);
     expect(() => digest.synthesisSubmitted('batch_t', now)).toThrow(InvalidDigestStateError);
+  });
+
+  it('retries its analysis at most once, and only after the first batch', () => {
+    const digest = begin();
+    digest.recordCollection(collection(3), now);
+    expect(() => digest.reanalysisSubmitted('batch_r', now)).toThrow(InvalidDigestStateError);
+
+    digest.enrichmentSubmitted(refs, now);
+    digest.reanalysisSubmitted('batch_r', now);
+    expect(digest.toSnapshot().reanalysisBatchRef).toBe('batch_r');
+    expect(() => digest.reanalysisSubmitted('batch_r2', now)).toThrow(InvalidDigestStateError);
+
+    digest.fail('quota', now);
+    digest.restart(now);
+    expect(digest.toSnapshot().reanalysisBatchRef).toBeNull();
   });
 
   it('can complete synthesis without a batch (nothing to synthesise)', () => {

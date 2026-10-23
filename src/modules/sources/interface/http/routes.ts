@@ -11,6 +11,7 @@ import type { UpdateSource } from '../../application/update-source.ts';
 import type { ItemSnapshot } from '../../domain/item.ts';
 import {
   FETCH_MODES,
+  healthOf,
   SOURCE_KINDS,
   type SourceId,
   type SourceSnapshot,
@@ -61,8 +62,10 @@ const toSourceDto = (s: SourceSnapshot) => ({
   waitForSelector: s.waitForSelector,
   enabled: s.enabled,
   lastCollectedAt: iso(s.lastCollectedAt),
+  health: healthOf(s),
   consecutiveFailures: s.consecutiveFailures,
   lastError: s.lastError,
+  disabledReason: s.disabledReason,
   baselinedAt: iso(s.baselinedAt),
   createdAt: s.createdAt.toISOString(),
   updatedAt: s.updatedAt.toISOString(),

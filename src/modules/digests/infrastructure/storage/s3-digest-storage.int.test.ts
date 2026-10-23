@@ -60,6 +60,7 @@ describe('digests S3 adapters', () => {
       itemCount: 0,
       analyzedCount: 0,
       failedItemCount: 0,
+      usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     });
 
     expect(location).toBe(`s3://${bucket}/${key}`);

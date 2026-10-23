@@ -42,6 +42,12 @@ curl 'localhost:8080/sources/<id>/items?limit=20'
 cat .data/s3/app-dev/sources/exports/2026-10-21.jsonl            # the run's export
 ```
 
+A source that fails `SOURCE_MAX_CONSECUTIVE_FAILURES` (5) collections in a row stops itself
+(`"health":"disabled"` and a `disabledReason` in `GET /sources`; the digest footer says so);
+`PATCH /sources/<id>` with `{"enabled":true}` starts it again with a clean slate. A browser
+source that failed only because no browser worker was running is reported but not held
+against it.
+
 A new source is tried the way the collector will read it (the same fetch and extraction as
 the preview) before it is saved, and so is an existing one whose URL, kind, selectors or fetch
 mode change. A source that cannot work is refused with `422 SOURCE_UNUSABLE`: the site refuses
@@ -237,6 +243,43 @@ of an earlier one (`DIGEST_REPEAT_THRESHOLD`, 0.97: reposts and syndicated copie
 of the page and only listed in the footer; one that is merely close
 (`DIGEST_FOLLOW_UP_THRESHOLD`, 0.85) stays and is labelled as a follow-up, linking the earlier
 report. `GET /digests/:id` shows each story's `earlier` match and its similarity, for tuning.
+
+Items the analysis batch could not analyse (error lines, or left out of an expired batch) get
+one retry batch; what still fails is listed by title and counted in the footer. The footer and
+`GET /digests/:id` also show the tokens used and what they cost: prices per model are built in
+for the default models (Batch API at half price) and can be set or overridden with
+`OPENAI_PRICES`, e.g. `{"gpt-6-luna":{"input":0.1,"output":0.5}}` (USD per million tokens on
+the normal API). A model without a price shows an unknown cost.
+
+Notifications: with `DIGEST_NOTIFY_RECIPIENT` set, a published digest (overview, top headlines,
+failed or stopped sources, cost, and a link if `DIGEST_PUBLIC_URL` is set) and a failed one are
+sent through the notifications context, once per day and event (idempotency key
+`digest-published:<owner>:<day>`). The notifications context only logs messages so far; a
+real sender (email, chat) is an adapter behind its `NotificationSender` port.
+
+### Retention
+
+The app never deletes from S3; set lifecycle rules on the bucket instead:
+
+| Prefix | Holds | Needed for | Suggested expiry |
+|---|---|---|---|
+| `sources/raw/` | each item's page (`.html`) and text (`.txt`) | exporting a run again (re-running that day) | 90 days |
+| `sources/exports/` | each run's JSONL hand-off to digests | that day's digest, and re-running it | 30 days |
+| `digests/llm-results/` | direct-mode LLM answers | reusing paid answers when a day is re-run | 30 days |
+| `digests/latest/` | the published page | always (overwritten daily) | never |
+
+```sh
+aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" --lifecycle-configuration '{
+  "Rules": [
+    { "ID": "raw",         "Status": "Enabled", "Filter": { "Prefix": "sources/raw/" },         "Expiration": { "Days": 90 } },
+    { "ID": "exports",     "Status": "Enabled", "Filter": { "Prefix": "sources/exports/" },     "Expiration": { "Days": 30 } },
+    { "ID": "llm-results", "Status": "Enabled", "Filter": { "Prefix": "digests/llm-results/" }, "Expiration": { "Days": 30 } }
+  ]
+}'
+```
+
+Postgres keeps items, digests and their entries (with embeddings). Recognising stories from
+earlier digests needs the entries of the last `DIGEST_HISTORY_DAYS`; nothing older is read.
 
 ## Things worth knowing
 

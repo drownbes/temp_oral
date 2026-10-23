@@ -566,6 +566,28 @@ Independent tasks, any order:
   >   milliseconds.
 - **Source health:** auto-disable after `SOURCE_MAX_CONSECUTIVE_FAILURES`. Shown in
   `GET /sources` and in the digest footer.
+
+  > **Status: done** (2026-10-23). The rest of phase 6 too, verified on a real run (92 items,
+  > $0.0175, notification sent):
+  > - **Source health:** `Source.recordFailure` stops a source after
+  >   `SOURCE_MAX_CONSECUTIVE_FAILURES` (5) failures in a row (`disabledReason`, migration
+  >   `0006`); enabling it again resets the count. A browser source that failed only because no
+  >   browser worker ran is reported but not counted. `GET /sources` shows `health`
+  >   (`ok`/`failing`/`disabled`); the contract's `FailedSource` gained `sourceName` and
+  >   `disabled`, and the footer names failed sources and says which were stopped.
+  > - **Batch failures:** items the analysis batch failed or left out (expired) get one
+  >   `reanalysis` batch (migration `0006_add_reanalysis_batch`); no workflow change — the digest
+  >   stays `enriching` and the loop waits and ingests again. What still fails is listed by
+  >   title. Embedding failures are not retried (they only cost grouping).
+  > - **Cost:** adapters price their usage (`OPENAI_PRICES` overrides built-in prices; Batch API
+  >   at half price; unknown models make the cost unknown, not low). Stored as `cost_usd`
+  >   (migration `0005`), shown in the footer and `GET /digests/:id`.
+  > - **Notifications:** `composeNotification` (digests) writes the message; the workflow starts
+  >   `sendNotificationWorkflow` as an abandoned child, so delivery never holds up or fails a
+  >   digest. Off unless `DIGEST_NOTIFY_RECIPIENT` (an email) is set. The real run caught a
+  >   non-email recipient only at send time, so config now validates it as an email.
+  > - **Retention:** README section with prefixes, purposes and an S3 lifecycle rule.
+  > - Not done (optional): `robots.txt` support, skipping unchanged page uploads.
 - **Notifications:** on publish or failure, `executeChild<SendNotificationWorkflow>` with
   idempotency key `digest-published:<runId>`. Recipient from config.
 - **Cost:** token usage from batch output → stored per digest → shown in the footer and

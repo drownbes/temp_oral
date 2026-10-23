@@ -175,14 +175,39 @@ describe('collecting a source and exporting a run', () => {
     await expect(collect('2026-10-21')).rejects.toThrow('connection reset');
     expect(sources.rows.get(source.id)?.consecutiveFailures).toBe(0);
 
-    await new RecordCollectionFailure({ repository: sources, clock }).execute(
-      source.id,
-      'connection reset',
-    );
+    await new RecordCollectionFailure({
+      repository: sources,
+      clock,
+      maxConsecutiveFailures: 5,
+    }).execute(source.id, 'connection reset');
     expect(sources.rows.get(source.id)).toMatchObject({
       consecutiveFailures: 1,
       lastError: 'connection reset',
     });
+  });
+
+  it('stops a source at the limit and says so; failures not its fault do not count', async () => {
+    const record = new RecordCollectionFailure({
+      repository: sources,
+      clock,
+      maxConsecutiveFailures: 2,
+    });
+    expect(await record.execute(source.id, 'HTTP 503')).toEqual({
+      sourceName: 'Example',
+      disabled: false,
+    });
+    expect(await record.execute(source.id, 'no browser worker', false)).toEqual({
+      sourceName: 'Example',
+      disabled: false,
+    });
+    expect(sources.rows.get(source.id)).toMatchObject({ consecutiveFailures: 1, enabled: true });
+
+    expect(await record.execute(source.id, 'HTTP 503')).toEqual({
+      sourceName: 'Example',
+      disabled: true,
+    });
+    // Already stopped: reported, but not stopped again
+    expect(await record.execute(source.id, 'HTTP 503')).toMatchObject({ disabled: false });
   });
 
   it('rejects malformed run ids', async () => {

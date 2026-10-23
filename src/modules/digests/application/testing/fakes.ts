@@ -167,7 +167,11 @@ export class FakeItemAnalyzer implements ItemAnalyzer {
         });
       }
     }
-    return { analyses, failures, usage: { inputTokens: 100 * processed.length, outputTokens: 10 } };
+    return {
+      analyses,
+      failures,
+      usage: { inputTokens: 100 * processed.length, outputTokens: 10, costUsd: 0.01 },
+    };
   }
 }
 
@@ -228,7 +232,10 @@ export class FakeItemEmbedder implements ItemEmbedder {
     for (const item of request.items) {
       embeddings.set(item.itemId, this.vectors.get(item.itemId) ?? this.#unique(item.itemId));
     }
-    return { embeddings, usage: { inputTokens: 5 * request.items.length, outputTokens: 0 } };
+    return {
+      embeddings,
+      usage: { inputTokens: 5 * request.items.length, outputTokens: 0, costUsd: 0.001 },
+    };
   }
 }
 
@@ -259,7 +266,7 @@ export class FakeDigestSynthesizer implements DigestSynthesizer {
     const overview = request.highlights.length
       ? `Overview of ${request.highlights.map((h) => h.title).join(', ')}`
       : null;
-    return { stories, overview, usage: { inputTokens: 50, outputTokens: 20 } };
+    return { stories, overview, usage: { inputTokens: 50, outputTokens: 20, costUsd: 0.002 } };
   }
 }
 

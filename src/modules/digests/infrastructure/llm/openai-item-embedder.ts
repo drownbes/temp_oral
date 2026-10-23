@@ -6,11 +6,14 @@ import type {
   ItemEmbedder,
 } from '../../application/ports.ts';
 import { type BatchClient, toBatchState } from './openai-batch-client.ts';
+import { type ModelPrice, priced } from './pricing.ts';
 
 export interface OpenAiItemEmbedderOptions {
   readonly model: string;
   /** Shorter vectors (text-embedding-3 models) cost the same but store and compare faster. */
   readonly dimensions: number;
+  /** Price of `model`; usage without one has an unknown cost. */
+  readonly price: ModelPrice | undefined;
 }
 
 /** Enough of an article to tell which story it is about; well within the 8k-token limit. */
@@ -63,6 +66,9 @@ export class OpenAiItemEmbedder implements ItemEmbedder {
       embeddings.set(line.customId, parsed.data.data[0].embedding);
       inputTokens += parsed.data.usage?.prompt_tokens ?? 0;
     }
-    return { embeddings, usage: { inputTokens, outputTokens: 0 } };
+    return {
+      embeddings,
+      usage: priced({ inputTokens, outputTokens: 0 }, this.#options.price, batchRef),
+    };
   }
 }

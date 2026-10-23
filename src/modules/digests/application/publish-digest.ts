@@ -61,6 +61,7 @@ export class PublishDigest {
       itemCount: snapshot.itemCount,
       analyzedCount: snapshot.analyzedCount,
       failedItemCount: snapshot.failedItemCount,
+      usage: snapshot.usage,
     });
     digest.publish(clock.now());
     await digests.save(digest);

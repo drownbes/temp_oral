@@ -9,7 +9,7 @@ export interface CheckEnrichmentDeps {
   readonly embedder: ItemEmbedder;
 }
 
-/** Polled by the workflow between durable timers: have both batches finished (in any way)? */
+/** Polled by the workflow between durable timers: have its batches finished (in any way)? */
 export class CheckEnrichment {
   readonly #deps: CheckEnrichmentDeps;
 
@@ -21,12 +21,13 @@ export class CheckEnrichment {
     const { digests, analyzer, embedder } = this.#deps;
     const digest = await digests.findById(digestId);
     if (!digest) throw new DigestNotFoundError(digestId);
-    const { status, analysisBatchRef, embeddingBatchRef } = digest.toSnapshot();
+    const { status, analysisBatchRef, reanalysisBatchRef, embeddingBatchRef } = digest.toSnapshot();
     if (status !== 'enriching' || !analysisBatchRef || !embeddingBatchRef) return { done: true };
-    const [analysis, embeddings] = await Promise.all([
+    const states = await Promise.all([
       analyzer.status(analysisBatchRef),
       embedder.status(embeddingBatchRef),
+      ...(reanalysisBatchRef ? [analyzer.status(reanalysisBatchRef)] : []),
     ]);
-    return { done: analysis.state !== 'pending' && embeddings.state !== 'pending' };
+    return { done: states.every((s) => s.state !== 'pending') };
   }
 }

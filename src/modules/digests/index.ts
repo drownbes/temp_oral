@@ -4,6 +4,7 @@ import { systemClock } from '#shared/kernel/clock.ts';
 import { BeginDigest } from './application/begin-digest.ts';
 import { CheckEnrichment } from './application/check-enrichment.ts';
 import { CheckSynthesis } from './application/check-synthesis.ts';
+import { ComposeNotification } from './application/compose-notification.ts';
 import { IngestEnrichment } from './application/ingest-enrichment.ts';
 import { IngestSynthesis } from './application/ingest-synthesis.ts';
 import { GetInterestProfile, UpdateInterestProfile } from './application/interest-profile.ts';
@@ -23,6 +24,7 @@ import {
 } from './infrastructure/llm/openai-direct-client.ts';
 import { OpenAiItemAnalyzer } from './infrastructure/llm/openai-item-analyzer.ts';
 import { OpenAiItemEmbedder } from './infrastructure/llm/openai-item-embedder.ts';
+import { DEFAULT_PRICES, type ModelPrice } from './infrastructure/llm/pricing.ts';
 import { StubDigestSynthesizer, StubItemEmbedder } from './infrastructure/llm/stub-enrichment.ts';
 import { StubItemAnalyzer } from './infrastructure/llm/stub-item-analyzer.ts';
 import { KyselyDigestEntryRepository } from './infrastructure/persistence/kysely-digest-entry-repository.ts';
@@ -78,19 +80,23 @@ function llm(deps: ModuleDeps): {
       concurrency: config.directConcurrency,
     }),
   );
+  const prices: Record<string, ModelPrice> = { ...DEFAULT_PRICES, ...config.prices };
   return {
-    analyzer: new OpenAiItemAnalyzer(batches, {
-      model: config.itemModel,
-      reasoningEffort: config.reasoningEffort,
-    }),
+    analyzer: new OpenAiItemAnalyzer(
+      batches,
+      { model: config.itemModel, reasoningEffort: config.reasoningEffort },
+      prices[config.itemModel],
+    ),
     embedder: new OpenAiItemEmbedder(batches, {
       model: config.embeddingModel,
       dimensions: config.embeddingDimensions,
+      price: prices[config.embeddingModel],
     }),
-    synthesizer: new OpenAiDigestSynthesizer(batches, {
-      model: config.synthesisModel,
-      reasoningEffort: config.reasoningEffort,
-    }),
+    synthesizer: new OpenAiDigestSynthesizer(
+      batches,
+      { model: config.synthesisModel, reasoningEffort: config.reasoningEffort },
+      prices[config.synthesisModel],
+    ),
   };
 }
 
@@ -144,10 +150,12 @@ export const digestsModule: ModuleDefinition = {
         ingestEnrichment: new IngestEnrichment({
           digests,
           entries,
+          profiles,
           reader,
           analyzer,
           embedder,
           clock,
+          maxItemChars: config.maxItemChars,
           clusterThreshold: config.clusterThreshold,
           earlierCoverage: config.earlierCoverage,
         }),
@@ -156,6 +164,13 @@ export const digestsModule: ModuleDefinition = {
         ingestSynthesis: new IngestSynthesis({ digests, synthesizer, clock }),
         publishDigest: new PublishDigest({ digests, entries, profiles, publisher, clock }),
         markDigestFailed: new MarkDigestFailed({ digests, clock }),
+        composeNotification: new ComposeNotification({
+          digests,
+          entries,
+          profiles,
+          recipient: config.notifyRecipient,
+          pageUrl: config.publicUrl,
+        }),
       }),
     };
   },

@@ -16,7 +16,11 @@ export interface CollectSourcesInput {
 
 export interface FailedSource {
   readonly sourceId: string;
+  /** Absent in results of runs from before it was reported. */
+  readonly sourceName?: string;
   readonly reason: string;
+  /** This failure stopped the source: it is no longer collected until enabled again. */
+  readonly disabled?: boolean;
 }
 
 export interface CollectSourcesResult {

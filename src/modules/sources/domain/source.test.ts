@@ -39,8 +39,8 @@ describe('Source', () => {
 
   it('is baselined by the first success and resets failures on success', () => {
     const source = create();
-    source.recordFailure('timeout', now);
-    source.recordFailure('timeout', now);
+    source.recordFailure('timeout', now, 5);
+    source.recordFailure('timeout', now, 5);
     expect(source.toSnapshot()).toMatchObject({ consecutiveFailures: 2, lastError: 'timeout' });
     expect(source.isBaselined).toBe(false);
 
@@ -51,6 +51,41 @@ describe('Source', () => {
       baselinedAt: later,
       validators: { etag: '"v1"', lastModified: null },
     });
+  });
+
+  it('stops itself after too many failures in a row; enabling it again starts over', () => {
+    const source = create();
+    source.recordFailure('HTTP 503', now, 3);
+    source.recordFailure('HTTP 503', now, 3);
+    expect(source.health).toBe('failing');
+    expect(source.isCollectable).toBe(true);
+
+    source.recordFailure('HTTP 503', now, 3);
+    expect(source.health).toBe('disabled');
+    expect(source.toSnapshot()).toMatchObject({
+      enabled: false,
+      consecutiveFailures: 3,
+      lastError: 'HTTP 503',
+      disabledReason: 'stopped after 3 failed collections in a row',
+    });
+
+    source.update({ enabled: true }, later);
+    expect(source.health).toBe('ok');
+    expect(source.toSnapshot()).toMatchObject({
+      enabled: true,
+      consecutiveFailures: 0,
+      disabledReason: null,
+    });
+    source.recordFailure('HTTP 503', later, 3);
+    expect(source.isCollectable).toBe(true);
+  });
+
+  it('is not stopped by failures while switched off by hand', () => {
+    const source = create();
+    source.update({ enabled: false }, now);
+    source.recordFailure('HTTP 503', now, 1);
+    expect(source.toSnapshot()).toMatchObject({ enabled: false, disabledReason: null });
+    expect(source.health).toBe('failing');
   });
 
   it('keeps the first baseline date on later successes', () => {

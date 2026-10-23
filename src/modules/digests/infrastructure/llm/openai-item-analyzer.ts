@@ -5,10 +5,15 @@ import type {
   BatchState,
   ItemAnalyzer,
 } from '../../application/ports.ts';
-import type { TokenUsage } from '../../domain/digest.ts';
 import { type ItemAnalysis, itemAnalysis } from '../../domain/digest-entry.ts';
-import { addUsage, type ChatModelOptions, chatRequest, readChatAnswer } from './chat-completion.ts';
+import {
+  addCounts,
+  type ChatModelOptions,
+  chatRequest,
+  readChatAnswer,
+} from './chat-completion.ts';
 import { type BatchClient, toBatchState } from './openai-batch-client.ts';
+import { type ModelPrice, priced, type TokenCounts } from './pricing.ts';
 import { ITEM_ANALYSIS_SCHEMA, itemSystemPrompt, itemUserPrompt } from './prompts.ts';
 
 const AnalysisJson = z.object({
@@ -22,10 +27,13 @@ const AnalysisJson = z.object({
 export class OpenAiItemAnalyzer implements ItemAnalyzer {
   readonly #batches: BatchClient;
   readonly #options: ChatModelOptions;
+  readonly #price: ModelPrice | undefined;
 
-  constructor(batches: BatchClient, options: ChatModelOptions) {
+  /** `price` of `options.model`; usage of a model without one has an unknown cost. */
+  constructor(batches: BatchClient, options: ChatModelOptions, price: ModelPrice | undefined) {
     this.#batches = batches;
     this.#options = options;
+    this.#price = price;
   }
 
   submit(request: AnalysisRequest): Promise<string> {
@@ -53,14 +61,14 @@ export class OpenAiItemAnalyzer implements ItemAnalyzer {
     const batch = await this.#batches.retrieve(batchRef);
     const analyses = new Map<string, ItemAnalysis>();
     const failures = new Map<string, string>();
-    let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+    let counts: TokenCounts = { inputTokens: 0, outputTokens: 0 };
 
     for (const line of await this.#batches.results(batch)) {
       const answer = readChatAnswer(line, AnalysisJson);
-      usage = addUsage(usage, answer.usage);
+      counts = addCounts(counts, answer.usage);
       if (answer.ok) analyses.set(line.customId, itemAnalysis(answer.value));
       else failures.set(line.customId, answer.failure);
     }
-    return { analyses, failures, usage };
+    return { analyses, failures, usage: priced(counts, this.#price, batchRef) };
   }
 }

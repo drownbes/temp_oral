@@ -25,13 +25,30 @@ export type DigestStatus =
 
 export interface FailedSource {
   readonly sourceId: string;
+  /** Missing for digests collected before names were reported. */
+  readonly sourceName?: string;
   readonly reason: string;
+  /** The failure stopped the source: it is no longer collected until enabled again. */
+  readonly disabled?: boolean;
 }
 
 export interface TokenUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** What the tokens cost in USD; null when a model's price is not known. */
+  readonly costUsd: number | null;
 }
+
+/** Adds up usage; one unknown cost makes the total unknown rather than too low. */
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    costUsd: a.costUsd === null || b.costUsd === null ? null : a.costUsd + b.costUsd,
+  };
+}
+
+export const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 
 export interface DigestSnapshot {
   readonly id: DigestId;
@@ -44,6 +61,8 @@ export interface DigestSnapshot {
   readonly failedSources: readonly FailedSource[];
   /** LLM batches, once submitted: per-item analysis, per-item embeddings, story synthesis. */
   readonly analysisBatchRef: string | null;
+  /** One more analysis batch for the items the first could not analyse; at most one. */
+  readonly reanalysisBatchRef: string | null;
   readonly embeddingBatchRef: string | null;
   readonly synthesisBatchRef: string | null;
   readonly analyzedCount: number;
@@ -80,14 +99,8 @@ export interface SynthesisOutcome {
   readonly usage: TokenUsage;
 }
 
-const NO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 const MAX_REASON_LENGTH = 2000;
 const MAX_OVERVIEW_LENGTH = 3000;
-
-const addUsage = (a: TokenUsage, b: TokenUsage): TokenUsage => ({
-  inputTokens: a.inputTokens + b.inputTokens,
-  outputTokens: a.outputTokens + b.outputTokens,
-});
 
 /** Aggregate root: one day's digest for one reader, from collection to the published page. */
 export class Digest {
@@ -119,6 +132,7 @@ export class Digest {
       itemCount: 0,
       failedSources: [],
       analysisBatchRef: null,
+      reanalysisBatchRef: null,
       embeddingBatchRef: null,
       synthesisBatchRef: null,
       analyzedCount: 0,
@@ -170,6 +184,21 @@ export class Digest {
       throw new InvalidDigestStateError(`digest ${this.id} already has enrichment batches`);
     }
     this.#state = { ...this.#state, ...refs, updatedAt: now };
+  }
+
+  /**
+   * Items the analysis batch failed (error lines, or missing from an expired batch) get one
+   * more try; whatever still fails after that is shown by title only.
+   */
+  reanalysisSubmitted(reanalysisBatchRef: string, now: Date): void {
+    this.#expect('enriching', 'submit reanalysis for');
+    if (!this.#state.analysisBatchRef) {
+      throw new InvalidDigestStateError(`digest ${this.id} has no analysis batch to retry`);
+    }
+    if (this.#state.reanalysisBatchRef) {
+      throw new InvalidDigestStateError(`digest ${this.id} already retried its analysis`);
+    }
+    this.#state = { ...this.#state, reanalysisBatchRef, updatedAt: now };
   }
 
   completeEnrichment(outcome: EnrichmentOutcome, now: Date): void {

@@ -91,6 +91,8 @@ export interface SourceSnapshot {
   readonly lastCollectedAt: Date | null;
   readonly consecutiveFailures: number;
   readonly lastError: string | null;
+  /** Why collecting stopped by itself (too many failures in a row); null otherwise. */
+  readonly disabledReason: string | null;
   /** Set by the first successful collection; until then items are recorded as already seen. */
   readonly baselinedAt: Date | null;
   readonly archivedAt: Date | null;
@@ -117,6 +119,17 @@ export interface SourceChanges {
   readonly waitForSelector?: string | null;
   readonly settings?: SourceSettings;
   readonly enabled?: boolean;
+}
+
+/**
+ * ok: last collection worked. failing: the last ones failed, still collected.
+ * disabled: stopped after too many failures in a row; enabling it again starts over.
+ */
+export type SourceHealth = 'ok' | 'failing' | 'disabled';
+
+export function healthOf(source: SourceSnapshot): SourceHealth {
+  if (source.disabledReason !== null) return 'disabled';
+  return source.consecutiveFailures > 0 ? 'failing' : 'ok';
 }
 
 const NO_VALIDATORS: FetchValidators = { etag: null, lastModified: null };
@@ -174,6 +187,7 @@ export class Source {
       lastCollectedAt: null,
       consecutiveFailures: 0,
       lastError: null,
+      disabledReason: null,
       baselinedAt: null,
       archivedAt: null,
       createdAt: props.now,
@@ -214,6 +228,14 @@ export class Source {
     return this.#state.enabled && !this.isArchived;
   }
 
+  get name(): string {
+    return this.#state.name;
+  }
+
+  get health(): SourceHealth {
+    return healthOf(this.#state);
+  }
+
   /**
    * Pointing a source at a different URL or kind makes it a different stream of items, so
    * it starts over: no conditional-request validators and a fresh baseline.
@@ -230,6 +252,10 @@ export class Source {
       fetchMode,
       changes.waitForSelector === undefined ? s.waitForSelector : changes.waitForSelector,
     );
+    const enabled = changes.enabled ?? s.enabled;
+    // Switched on or off by hand: whatever stopped it by itself no longer applies, and a
+    // source enabled again gets a full set of tries before it is stopped again
+    const switched = changes.enabled !== undefined && changes.enabled !== s.enabled;
 
     this.#state = {
       ...s,
@@ -238,7 +264,8 @@ export class Source {
       fetchMode,
       waitForSelector,
       settings,
-      enabled: changes.enabled ?? s.enabled,
+      enabled,
+      ...(switched ? { disabledReason: null, consecutiveFailures: 0 } : {}),
       ...(restarts ? { validators: NO_VALIDATORS, baselinedAt: null } : {}),
       updatedAt: now,
     };
@@ -261,12 +288,24 @@ export class Source {
     };
   }
 
-  recordFailure(reason: string, now: Date): void {
+  /**
+   * A collection run failed for good (after its retries). After `maxConsecutiveFailures` in
+   * a row the source stops being collected, so a dead site does not fail every run forever.
+   */
+  recordFailure(reason: string, now: Date, maxConsecutiveFailures: number): void {
+    const consecutiveFailures = this.#state.consecutiveFailures + 1;
+    const stops = this.#state.enabled && consecutiveFailures >= maxConsecutiveFailures;
     this.#state = {
       ...this.#state,
       lastCollectedAt: now,
-      consecutiveFailures: this.#state.consecutiveFailures + 1,
+      consecutiveFailures,
       lastError: reason.slice(0, MAX_ERROR_LENGTH),
+      ...(stops
+        ? {
+            enabled: false,
+            disabledReason: `stopped after ${consecutiveFailures} failed collections in a row`,
+          }
+        : {}),
       updatedAt: now,
     };
   }

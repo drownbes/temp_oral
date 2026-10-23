@@ -4,6 +4,7 @@ import type {
   BatchState,
   ItemAnalyzer,
 } from '../../application/ports.ts';
+import { NO_USAGE } from '../../domain/digest.ts';
 import type { ItemAnalysis } from '../../domain/digest-entry.ts';
 
 /**
@@ -40,7 +41,7 @@ export class StubItemAnalyzer implements ItemAnalyzer {
         tags: ['stub'],
       });
     }
-    return { analyses, failures: new Map(), usage: { inputTokens: 0, outputTokens: 0 } };
+    return { analyses, failures: new Map(), usage: NO_USAGE };
   }
 }
 

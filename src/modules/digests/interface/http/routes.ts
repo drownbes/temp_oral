@@ -31,6 +31,7 @@ const toDigestDto = (d: DigestSnapshot) => ({
   batches: {
     analysis: d.analysisBatchRef,
     embeddings: d.embeddingBatchRef,
+    reanalysis: d.reanalysisBatchRef,
     synthesis: d.synthesisBatchRef,
   },
   overview: d.overview,

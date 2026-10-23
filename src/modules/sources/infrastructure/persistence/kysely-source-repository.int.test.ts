@@ -44,7 +44,7 @@ describe('KyselySourceRepository', () => {
     expect((await repository.findById(listing.id))?.toSnapshot()).toEqual(listing.toSnapshot());
 
     listing.recordSuccess({ etag: '"v1"', lastModified: 'Tue, 20 Oct 2026 10:00:00 GMT' }, now);
-    listing.recordFailure('timeout', now);
+    listing.recordFailure('timeout', now, 1); // stops it: disabled_reason round-trips too
     await repository.save(listing);
     expect((await repository.findById(listing.id))?.toSnapshot()).toEqual(listing.toSnapshot());
   });

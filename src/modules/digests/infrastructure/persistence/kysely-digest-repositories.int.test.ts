@@ -56,7 +56,7 @@ describe('digests repositories', () => {
         clusters: [
           { id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null, earlier: null },
         ],
-        usage: { inputTokens: 500, outputTokens: 80 },
+        usage: { inputTokens: 500, outputTokens: 80, costUsd: 0.25 },
       },
       now,
     );
@@ -65,7 +65,7 @@ describe('digests repositories', () => {
       {
         stories: new Map([['i-1', { headline: 'Merged', summary: 'S' }]]),
         overview: 'Overview',
-        usage: { inputTokens: 10, outputTokens: 5 },
+        usage: { inputTokens: 10, outputTokens: 5, costUsd: null },
       },
       now,
     );

@@ -117,6 +117,8 @@ export interface DigestPage {
   readonly itemCount: number;
   readonly analyzedCount: number;
   readonly failedItemCount: number;
+  /** All LLM calls of the digest. */
+  readonly usage: TokenUsage;
 }
 
 /** Port: renders and publishes the digest page (one static HTML object on S3). */

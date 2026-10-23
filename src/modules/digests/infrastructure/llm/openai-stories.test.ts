@@ -16,7 +16,7 @@ const item = (itemId: string, text: string): CollectedItem => ({
 });
 
 describe('OpenAiItemEmbedder', () => {
-  const options = { model: 'text-embedding-test', dimensions: 512 };
+  const options = { model: 'text-embedding-test', dimensions: 512, price: undefined };
 
   it('embeds title plus the start of the text, one request per item', async () => {
     const client = new FakeBatchClient();
@@ -47,7 +47,7 @@ describe('OpenAiItemEmbedder', () => {
 
     const results = await new OpenAiItemEmbedder(client, options).results('batch_1');
     expect(Object.fromEntries(results.embeddings)).toEqual({ a: [0.1, 0.2] });
-    expect(results.usage).toEqual({ inputTokens: 12, outputTokens: 0 });
+    expect(results.usage).toEqual({ inputTokens: 12, outputTokens: 0, costUsd: null });
   });
 });
 
@@ -60,7 +60,7 @@ describe('OpenAiDigestSynthesizer', () => {
 
   it('asks for one merged story per cluster plus the overview, in one batch', async () => {
     const client = new FakeBatchClient();
-    await new OpenAiDigestSynthesizer(client, options).submit({
+    await new OpenAiDigestSynthesizer(client, options, undefined).submit({
       key: 'digest-1-synthesis',
       interests: 'KDE',
       stories: [{ clusterId: 'c-1', items: storyItems }],
@@ -79,7 +79,7 @@ describe('OpenAiDigestSynthesizer', () => {
 
   it('skips the overview request without highlights', async () => {
     const client = new FakeBatchClient();
-    await new OpenAiDigestSynthesizer(client, options).submit({
+    await new OpenAiDigestSynthesizer(client, options, undefined).submit({
       key: 'k',
       interests: '',
       stories: [{ clusterId: 'c-1', items: storyItems }],
@@ -99,11 +99,13 @@ describe('OpenAiDigestSynthesizer', () => {
       okLine('overview', completion(JSON.stringify({ overview: 'A KDE day.' }))),
     ];
 
-    const results = await new OpenAiDigestSynthesizer(client, options).results('batch_1');
+    const results = await new OpenAiDigestSynthesizer(client, options, undefined).results(
+      'batch_1',
+    );
     expect(Object.fromEntries(results.stories)).toEqual({
       'c-1': { headline: 'Plasma 6.8.1', summary: 'Fixes.' },
     });
     expect(results.overview).toBe('A KDE day.');
-    expect(results.usage).toEqual({ inputTokens: 360, outputTokens: 90 });
+    expect(results.usage).toEqual({ inputTokens: 360, outputTokens: 90, costUsd: null });
   });
 });

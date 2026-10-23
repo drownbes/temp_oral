@@ -1,4 +1,5 @@
 import type { DigestPage } from '../../application/ports.ts';
+import type { FailedSource, TokenUsage } from '../../domain/digest.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
 import type { Story } from '../../domain/ranking.ts';
 
@@ -95,8 +96,9 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
           .join('; ')}.`
       : '',
     page.failedSources.length > 0
-      ? `Could not collect ${page.failedSources.length} ${plural(page.failedSources.length, 'source')}: ${page.failedSources.map((s) => escapeHtml(s.reason)).join('; ')}.`
+      ? `Could not collect ${page.failedSources.length} ${plural(page.failedSources.length, 'source')}: ${page.failedSources.map(failedSource).join('; ')}.`
       : '',
+    page.usage.inputTokens + page.usage.outputTokens > 0 ? llmUsage(page.usage) : '',
     `Generated ${escapeHtml(time.format(page.generatedAt))}.`,
   ].filter(Boolean);
 
@@ -152,6 +154,27 @@ function followUp(story: Story): string {
   }).format(new Date(`${earlier.runId}T00:00:00Z`));
   return `<p class="earlier">Follow-up · first reported ${escapeHtml(day)}: ${link(earlier.url, earlier.title)} (${escapeHtml(earlier.sourceName)})</p>
   `;
+}
+
+/** "LLM: 134k tokens in, 14k out, about $0.02." */
+function llmUsage(usage: TokenUsage): string {
+  const tokens = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : String(n));
+  const cost =
+    usage.costUsd === null
+      ? 'cost unknown (a model has no price set)'
+      : usage.costUsd < 0.01
+        ? 'less than $0.01'
+        : `about $${usage.costUsd.toFixed(2)}`;
+  return `LLM: ${tokens(usage.inputTokens)} tokens in, ${tokens(usage.outputTokens)} out, ${cost}.`;
+}
+
+/** "Name (reason)", plus a warning when this failure made the source stop. */
+function failedSource(source: FailedSource): string {
+  const name = source.sourceName ? `${escapeHtml(source.sourceName)} ` : '';
+  const stopped = source.disabled
+    ? ' <strong>— stopped after repeated failures; enable it again once fixed</strong>'
+    : '';
+  return `${name}(${escapeHtml(source.reason)})${stopped}`;
 }
 
 function publishedAt(entry: DigestEntry, format: Intl.DateTimeFormat): string {

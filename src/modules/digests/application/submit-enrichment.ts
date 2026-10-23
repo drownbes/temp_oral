@@ -4,7 +4,7 @@ import { DigestNotFoundError } from '../domain/errors.ts';
 import type { DigestRepository, InterestProfileRepository } from '../domain/repositories.ts';
 import { batchKey } from './batch-key.ts';
 import { type DigestState, toState } from './digest-state.ts';
-import type { ExportedItemsReader, ItemAnalyzer, ItemEmbedder } from './ports.ts';
+import type { CollectedItem, ExportedItemsReader, ItemAnalyzer, ItemEmbedder } from './ports.ts';
 
 export interface SubmitEnrichmentDeps {
   readonly digests: DigestRepository;
@@ -23,6 +23,17 @@ export interface SubmitEnrichmentDeps {
  * keyed by its content, so a crash before saving finds the same batches instead of paying
  * twice.
  */
+/** Items as the LLM gets them: text cut to the configured maximum. */
+export function forAnalysis(
+  items: readonly CollectedItem[],
+  maxItemChars: number,
+): CollectedItem[] {
+  return items.map((item) => ({
+    ...item,
+    text: item.text.length > maxItemChars ? `${item.text.slice(0, maxItemChars)}…` : item.text,
+  }));
+}
+
 export class SubmitEnrichment {
   readonly #deps: SubmitEnrichmentDeps;
 
@@ -37,10 +48,7 @@ export class SubmitEnrichment {
     const { status, analysisBatchRef, exportKey, ownerId } = digest.toSnapshot();
     if (status !== 'enriching' || analysisBatchRef || !exportKey) return toState(digest);
 
-    const items = (await reader.read(exportKey)).map((item) => ({
-      ...item,
-      text: item.text.length > maxItemChars ? `${item.text.slice(0, maxItemChars)}…` : item.text,
-    }));
+    const items = forAnalysis(await reader.read(exportKey), maxItemChars);
     const interests = (await profiles.find(ownerId))?.toSnapshot().interests ?? '';
     const analysisRef = await analyzer.submit({
       key: await batchKey(digestId, 'analysis', { interests, items }),

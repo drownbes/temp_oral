@@ -10,7 +10,10 @@ import type {
   PreviewSourceCommand,
   SourcePreview,
 } from '../../application/preview-source.ts';
-import type { RecordCollectionFailure } from '../../application/record-collection-failure.ts';
+import type {
+  RecordCollectionFailure,
+  RecordedFailure,
+} from '../../application/record-collection-failure.ts';
 import type { SourceId } from '../../domain/source.ts';
 
 /** Inbound adapter: Temporal activities are thin wrappers that call use cases. */
@@ -27,9 +30,13 @@ export function createSourceActivities(useCases: {
     collectSource(sourceId: string, runId: string): Promise<CollectSourceResult> {
       return failOnDomainError(() => useCases.collectSource.execute(sourceId as SourceId, runId));
     },
-    recordCollectionFailure(sourceId: string, reason: string): Promise<void> {
+    recordCollectionFailure(
+      sourceId: string,
+      reason: string,
+      countsAgainstSource = true,
+    ): Promise<RecordedFailure> {
       return failOnDomainError(() =>
-        useCases.recordCollectionFailure.execute(sourceId as SourceId, reason),
+        useCases.recordCollectionFailure.execute(sourceId as SourceId, reason, countsAgainstSource),
       );
     },
     exportItems(runId: string): Promise<ExportItemsResult> {

@@ -2,6 +2,11 @@ import { z } from 'zod';
 
 const LogLevel = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']);
 
+const ModelPrices = z.record(
+  z.string(),
+  z.object({ input: z.number().min(0), output: z.number().min(0) }),
+);
+
 const EnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
@@ -40,6 +45,9 @@ const EnvSchema = z
     FETCH_USER_AGENT: z.string().min(1).default('temp-oral-digest/0.1 (+feed reader)'),
     // Keep false in production: URLs come from the API, so private addresses would be SSRF
     FETCH_ALLOW_PRIVATE_NETWORKS: z.stringbool().default(false),
+    // A source that failed this many collections in a row stops being collected (about that
+    // many days with the daily schedule) until it is enabled again
+    SOURCE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).default(5),
 
     // Headless Chromium for JS-rendered sources. Only the worker serving the sources-browser
     // queue needs it; without it, browser sources fail and are reported as failed.
@@ -69,6 +77,23 @@ const EnvSchema = z
     OPENAI_SYNTHESIS_MODEL: z.string().min(1).default('gpt-6-luna'),
     OPENAI_EMBEDDING_MODEL: z.string().min(1).default('text-embedding-3-small'),
     OPENAI_EMBEDDING_DIMENSIONS: z.coerce.number().int().min(64).max(3072).default(512),
+    // USD per million tokens on the normal API (the Batch API charges half), added to and
+    // overriding the built-in prices, e.g. {"gpt-6-luna":{"input":0.1,"output":0.5}}.
+    // Models without a price show an unknown cost.
+    OPENAI_PRICES: z
+      .string()
+      .default('{}')
+      .transform((value, ctx) => {
+        try {
+          return ModelPrices.parse(JSON.parse(value));
+        } catch {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'must be JSON: {"<model>":{"input":n,"output":n}}',
+          });
+          return z.NEVER;
+        }
+      }),
 
     // Daily digest
     DIGEST_CRON: z.string().min(1).default('0 6 * * *'),
@@ -76,6 +101,10 @@ const EnvSchema = z
     // Defaults to S3_BUCKET; set it to publish the page to a separate (e.g. public) bucket
     DIGEST_PUBLISH_BUCKET: z.string().min(1).optional(),
     DIGEST_PUBLISH_KEY: z.string().min(1).default('digests/latest/index.html'),
+    // Told when a digest is published or fails (through the notifications context); no
+    // notifications when unset. DIGEST_PUBLIC_URL, if the page is served, goes in the message.
+    DIGEST_NOTIFY_RECIPIENT: z.email().optional(),
+    DIGEST_PUBLIC_URL: z.url().optional(),
     // Article text sent to the LLM per item; longer texts are cut
     DIGEST_MAX_ITEM_CHARS: z.coerce.number().int().positive().default(16_000),
     // Cosine similarity at which two items count as the same story (embedding-model specific)
@@ -140,6 +169,7 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       userAgent: env.FETCH_USER_AGENT,
       allowPrivateNetworks: env.FETCH_ALLOW_PRIVATE_NETWORKS,
     },
+    sources: { maxConsecutiveFailures: env.SOURCE_MAX_CONSECUTIVE_FAILURES },
     browser: {
       enabled: env.BROWSER_FETCH_ENABLED,
       executablePath: env.BROWSER_EXECUTABLE_PATH,
@@ -166,12 +196,15 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       synthesisModel: env.OPENAI_SYNTHESIS_MODEL,
       embeddingModel: env.OPENAI_EMBEDDING_MODEL,
       embeddingDimensions: env.OPENAI_EMBEDDING_DIMENSIONS,
+      prices: env.OPENAI_PRICES,
     },
     digest: {
       cron: env.DIGEST_CRON,
       timezone: env.DIGEST_TIMEZONE,
       publishBucket: env.DIGEST_PUBLISH_BUCKET ?? env.S3_BUCKET,
       publishKey: env.DIGEST_PUBLISH_KEY,
+      notifyRecipient: env.DIGEST_NOTIFY_RECIPIENT,
+      publicUrl: env.DIGEST_PUBLIC_URL,
       maxItemChars: env.DIGEST_MAX_ITEM_CHARS,
       clusterThreshold: env.DIGEST_CLUSTER_THRESHOLD,
       earlierCoverage: {

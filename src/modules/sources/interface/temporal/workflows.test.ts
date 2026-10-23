@@ -58,7 +58,7 @@ describe('collectSourcesWorkflow', () => {
     const calls = {
       collected: [] as string[],
       browserCollected: [] as string[],
-      failures: [] as [string, string][],
+      failures: [] as [string, string, boolean][],
       exports: 0,
     };
     const fakes: SourceActivities = {
@@ -67,8 +67,10 @@ describe('collectSourcesWorkflow', () => {
         calls.collected.push(sourceId);
         return collected(sourceId);
       },
-      recordCollectionFailure: async (sourceId, reason) => {
-        calls.failures.push([sourceId, reason]);
+      recordCollectionFailure: async (sourceId, reason, countsAgainstSource = true) => {
+        calls.failures.push([sourceId, reason, countsAgainstSource]);
+        // s-dying: this failure is the one that stops it
+        return { sourceName: `Name of ${sourceId}`, disabled: sourceId === 's-dying' };
       },
       exportItems: async (runId) => {
         calls.exports++;
@@ -134,9 +136,23 @@ describe('collectSourcesWorkflow', () => {
     });
 
     const result = await run(fakes);
-    expect(result.failedSources).toEqual([{ sourceId: 's2', reason: 'HTTP 404' }]);
-    expect(calls.failures).toEqual([['s2', 'HTTP 404']]);
+    expect(result.failedSources).toEqual([
+      { sourceId: 's2', sourceName: 'Name of s2', reason: 'HTTP 404', disabled: false },
+    ]);
+    expect(calls.failures).toEqual([['s2', 'HTTP 404', true]]);
     expect(calls.exports).toBe(1);
+  });
+
+  it('reports a source that this failure stopped', async () => {
+    const { fakes } = activities({
+      listCollectableSources: async () => listed(['s-dying']),
+      collectSource: async () => {
+        throw ApplicationFailure.nonRetryable('HTTP 410', 'SOURCE_FETCH_FAILED');
+      },
+    });
+    expect((await run(fakes)).failedSources).toEqual([
+      { sourceId: 's-dying', sourceName: 'Name of s-dying', reason: 'HTTP 410', disabled: true },
+    ]);
   });
 
   it('keeps at most COLLECT_CONCURRENCY sources in flight', async () => {
@@ -191,10 +207,16 @@ describe('collectSourcesWorkflow', () => {
 
     const result = await run(fakes, { input: { browserPickupTimeout: '1 second' } });
     expect(result.failedSources).toEqual([
-      { sourceId: 'spa', reason: expect.stringContaining('no browser worker') },
+      {
+        sourceId: 'spa',
+        sourceName: 'Name of spa',
+        reason: expect.stringContaining('no browser worker'),
+        disabled: false,
+      },
     ]);
     expect(calls.collected).toEqual(['s1']);
-    expect(calls.failures.map(([id]) => id)).toEqual(['spa']);
+    // Reported, but not held against the source
+    expect(calls.failures.map(([id, , counts]) => [id, counts])).toEqual([['spa', false]]);
     expect(calls.exports).toBe(1);
   });
 

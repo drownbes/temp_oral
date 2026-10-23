@@ -7,9 +7,9 @@ import type {
   SynthesisRequest,
   SynthesisResults,
 } from '../../application/ports.ts';
+import { NO_USAGE } from '../../domain/digest.ts';
 import type { StoryText } from '../../domain/story.ts';
 
-const NO_USAGE = { inputTokens: 0, outputTokens: 0 };
 const DIMENSIONS = 256;
 const STOP_WORDS = new Set(
   'the and for with from that this into are was has have its new now out more than via over'.split(

@@ -1,5 +1,5 @@
 import type { Clock } from '#shared/kernel/clock.ts';
-import type { DigestId } from '../domain/digest.ts';
+import { type DigestId, NO_USAGE } from '../domain/digest.ts';
 import { DigestNotFoundError } from '../domain/errors.ts';
 import { DEFAULT_RELEVANCE_THRESHOLD } from '../domain/interest-profile.ts';
 import { isRepeat, rankStories } from '../domain/ranking.ts';
@@ -60,7 +60,7 @@ export class SubmitSynthesis {
 
     if (multiSource.length === 0 && highlights.length === 0) {
       digest.completeSynthesis(
-        { stories: new Map(), overview: null, usage: { inputTokens: 0, outputTokens: 0 } },
+        { stories: new Map(), overview: null, usage: NO_USAGE },
         clock.now(),
       );
     } else {

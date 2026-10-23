@@ -4,15 +4,23 @@ import {
   ApplicationFailure,
   executeChild,
   log,
+  ParentClosePolicy,
   proxyActivities,
   sleep,
+  startChild,
   workflowInfo,
 } from '@temporalio/workflow';
+import {
+  NOTIFICATIONS_TASK_QUEUE,
+  SEND_NOTIFICATION_WORKFLOW,
+  type SendNotificationWorkflow,
+} from '#modules/notifications/contracts/index.ts';
 import {
   COLLECT_SOURCES_WORKFLOW,
   type CollectSourcesWorkflow,
   SOURCES_TASK_QUEUE,
 } from '#modules/sources/contracts/index.ts';
+import type { DigestEvent } from '../../application/compose-notification.ts';
 import type { DigestState } from '../../application/digest-state.ts';
 import type { DigestActivities } from './activities.ts';
 import { BATCH_POLL_INTERVALS, type DailyDigestInput, pollDelay } from './definitions.ts';
@@ -34,6 +42,12 @@ const {
 const { submitEnrichment, submitSynthesis } = proxyActivities<DigestActivities>({
   startToCloseTimeout: '15 minutes',
   retry: { maximumAttempts: 3, initialInterval: '30 seconds' },
+});
+
+// Telling someone is a courtesy: a few quick tries, then the digest moves on
+const { composeNotification } = proxyActivities<DigestActivities>({
+  startToCloseTimeout: '1 minute',
+  retry: { maximumAttempts: 3, initialInterval: '10 seconds' },
 });
 
 const { markDigestFailed } = proxyActivities<DigestActivities>({
@@ -98,6 +112,7 @@ export async function dailyDigestWorkflow(input: DailyDigestInput): Promise<Dige
     const reason = failureReason(err);
     log.warn('digest failed', { digestId: state.digestId, runId: state.runId, reason });
     await markDigestFailed(state.digestId, reason);
+    await notify(state.digestId, 'failed');
     throw err;
   }
 
@@ -106,7 +121,28 @@ export async function dailyDigestWorkflow(input: DailyDigestInput): Promise<Dige
     runId: state.runId,
     status: state.status,
   });
+  if (state.status === 'published') await notify(state.digestId, 'published');
   return state;
+}
+
+/**
+ * Hands the message to the notifications context, which sends each idempotency key once (so
+ * running a day again does not notify again). Started as an independent child: the digest
+ * neither waits for delivery nor fails with it.
+ */
+async function notify(digestId: string, event: DigestEvent): Promise<void> {
+  try {
+    const message = await composeNotification(digestId, event);
+    if (!message) return;
+    await startChild<SendNotificationWorkflow>(SEND_NOTIFICATION_WORKFLOW, {
+      taskQueue: NOTIFICATIONS_TASK_QUEUE,
+      workflowId: `${workflowInfo().workflowId}-notify-${event}`,
+      parentClosePolicy: ParentClosePolicy.ABANDON,
+      args: [message],
+    });
+  } catch (err) {
+    log.warn('digest notification failed', { digestId, event, reason: failureReason(err) });
+  }
 }
 
 /** Polls an LLM batch with backoff (durable timers) until it has finished one way or another. */
