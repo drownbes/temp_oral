@@ -69,11 +69,18 @@ export class CheckSource implements SourceChecker {
     const problem = nothingToCollect(command, preview);
     if (problem) throw new UnusableSourceError(problem);
 
+    const warnings: string[] = [];
     const sample = preview.articleSample;
-    return {
-      warnings:
-        sample && 'error' in sample ? [`${sample.url} could not be read: ${sample.error}`] : [],
-    };
+    if (sample && 'error' in sample) {
+      warnings.push(`${sample.url} could not be read: ${sample.error}`);
+    }
+    const transcript = preview.transcriptSample;
+    if (transcript && 'error' in transcript) {
+      warnings.push(
+        `no transcript for ${transcript.url} (${transcript.error}); videos without one keep their description`,
+      );
+    }
+    return { warnings };
   }
 }
 
@@ -94,5 +101,7 @@ function nothingToCollect(command: PreviewSourceCommand, preview: SourcePreview)
       return preview.pageSample?.chars
         ? null
         : `${preview.url} has no text${command.contentSelector ? ' matching contentSelector' : ''}${tryBrowser}`;
+    case 'youtube':
+      return preview.entryCount === 0 ? `${preview.url} has no videos (Shorts are left out)` : null;
   }
 }

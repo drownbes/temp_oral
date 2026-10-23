@@ -109,3 +109,15 @@ export interface PageText {
 export interface PageTextExtractor {
   extract(html: string, url: string, contentSelector: string | null): PageText;
 }
+
+/** Port: finds the channel behind a YouTube URL that does not name it (youtube.com/@handle). */
+export interface YouTubeChannels {
+  /** The channel id (UC…). Throws SourceFetchError when the URL is not a channel. */
+  channelIdOf(url: string): Promise<string>;
+}
+
+/** Port: what is said in a YouTube video, from its captions. */
+export interface VideoTranscripts {
+  /** Undefined when the video has no captions; throws when they cannot be read. */
+  transcriptOf(videoId: string): Promise<string | undefined>;
+}

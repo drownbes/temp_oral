@@ -6,7 +6,7 @@ export const TEASER_MAX_CHARS = 1500;
 /**
  * Whether to fetch an entry's own page. Never for baseline items (they are never handed to
  * a digest). Feeds: only when allowed and the feed gave a teaser. Listings: always, the
- * index page only has links.
+ * index page only has links. Videos get their transcript instead.
  */
 export function wantsArticlePage(
   settings: SourceSettings,
@@ -20,6 +20,7 @@ export function wantsArticlePage(
     case 'listing':
       return true;
     case 'page':
+    case 'youtube':
       return false;
   }
 }

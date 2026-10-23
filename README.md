@@ -86,6 +86,20 @@ curl -XPOST localhost:8080/sources/preview -H 'content-type: application/json' \
 Content inside shadow DOM (Lit / web-component apps) is not part of the rendered HTML, so such
 sites come out empty even in the browser.
 
+A **YouTube channel** (`"kind":"youtube"`) is read through its public feed (the latest 15
+uploads). Shorts are left out, and each new video's text is its transcript followed by its
+description. A handle (`youtube.com/@name`) is looked up once and the source is saved as
+`youtube.com/channel/UC…`. Transcripts come from the captions (the channel's own in the
+spoken language, otherwise YouTube's generated ones) through the player API the Android app
+uses. That API is undocumented, so a video without captions, or one whose captions YouTube
+won't serve, keeps its description only (`transcriptsMissing` in the collection result). The
+preview shows a `transcriptSample` of the first video:
+
+```sh
+curl -XPOST localhost:8080/sources/preview -H 'content-type: application/json' \
+  -d '{"url":"https://www.youtube.com/@veritasium","kind":"youtube"}'
+```
+
 A source's first collection is mostly a **baseline**: entries from the last 24 hours reach
 the digest, older (or undated) ones are only remembered, so adding a site doesn't flood the
 digest with its archive. Each item is exported by exactly one run; re-running a run id

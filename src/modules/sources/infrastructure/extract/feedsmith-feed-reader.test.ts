@@ -52,6 +52,30 @@ describe('FeedsmithFeedReader', () => {
     ]);
   });
 
+  it('reads a YouTube channel feed, taking the media description as content', () => {
+    const entries = reader.read(
+      fixture('youtube.xml'),
+      'https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA',
+    );
+
+    expect(entries).toEqual([
+      {
+        url: 'https://www.youtube.com/watch?v=NiCgcUTL9_Q',
+        title: 'The experiment that failed & changed physics',
+        publishedAt: new Date('2026-10-20T15:00:00Z'),
+        html: expect.stringContaining('the ether.<br><br>Sponsored by &lt;nobody&gt;.'),
+        text: 'In 1887 two physicists tried to measure the ether.\nSponsored by <nobody>.',
+      },
+      {
+        url: 'https://www.youtube.com/shorts/wxLc-gFORPQ',
+        title: 'A short one',
+        publishedAt: new Date('2026-10-19T12:00:00Z'),
+        html: expect.any(String),
+        text: '',
+      },
+    ]);
+  });
+
   it('reads JSON Feed plain-text content', () => {
     const [entry] = reader.read(fixture('feed.json'), 'https://json.example.net/feed.json');
     expect(entry).toMatchObject({

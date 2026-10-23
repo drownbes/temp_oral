@@ -22,6 +22,8 @@ const collected = (sourceId: string): CollectSourceResult => ({
   baseline: false,
   articlesFetched: 0,
   articleFailures: 0,
+  transcriptsFetched: 0,
+  transcriptsMissing: 0,
 });
 
 const listed = (ids: string[], fetchMode: FetchMode = 'http') =>
@@ -33,6 +35,7 @@ const preview: SourcePreview = {
   entries: [{ url: 'https://example.com/news/1', title: 'One', publishedAt: null, excerpt: '' }],
   articleSample: null,
   pageSample: null,
+  transcriptSample: null,
 };
 
 const workflowsPath = fileURLToPath(new URL('./workflows.ts', import.meta.url));

@@ -134,6 +134,28 @@ describe('Source', () => {
     );
   });
 
+  it('is a YouTube channel, read through its feed over http', () => {
+    const channel = 'UCHnyfMqiRRG1u-2MsSQLbXA';
+    const source = create({
+      url: `https://youtube.com/channel/${channel}/videos`,
+      settings: { kind: 'youtube' },
+    });
+    expect(source.url).toBe(`https://www.youtube.com/channel/${channel}`);
+    expect(source.fetchUrl).toBe(`https://www.youtube.com/feeds/videos.xml?channel_id=${channel}`);
+    expect(create().fetchUrl).toBe('https://example.com/feed.xml');
+
+    expect(() => source.update({ fetchMode: 'browser' }, later)).toThrow(
+      new InvalidSourceError('youtube sources are read over http, not in a browser'),
+    );
+    expect(() =>
+      create({ url: 'https://www.youtube.com/@veritasium', settings: { kind: 'youtube' } }),
+    ).toThrow(InvalidSourceError);
+    // Turning a feed into a channel needs a channel URL too
+    expect(() => create().update({ settings: { kind: 'youtube' } }, later)).toThrow(
+      InvalidSourceError,
+    );
+  });
+
   it('cannot be changed once archived', () => {
     const source = create();
     source.archive(later);

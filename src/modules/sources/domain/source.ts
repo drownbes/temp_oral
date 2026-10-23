@@ -1,12 +1,13 @@
 import type { Brand } from '#shared/kernel/brand.ts';
 import { ArchivedSourceError, InvalidSourceError } from './errors.ts';
 import { canonicalizeUrl } from './url.ts';
+import { youtubeChannelIdOf, youtubeChannelUrl, youtubeFeedUrl } from './youtube.ts';
 
 export type SourceId = Brand<string, 'SourceId'>;
 
 export const newSourceId = (): SourceId => crypto.randomUUID() as SourceId;
 
-export const SOURCE_KINDS = ['feed', 'listing', 'page'] as const;
+export const SOURCE_KINDS = ['feed', 'listing', 'page', 'youtube'] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
 export const FETCH_MODES = ['http', 'browser'] as const;
@@ -30,6 +31,10 @@ export type SourceSettings =
       readonly kind: 'page';
       /** CSS selector of the part of the page to watch; the whole page when null. */
       readonly contentSelector: string | null;
+    }
+  | {
+      /** A channel: each new video (not Shorts), with its transcript where it has one. */
+      readonly kind: 'youtube';
     };
 
 export interface SourceSettingsInput {
@@ -63,6 +68,8 @@ export function sourceSettings(kind: SourceKind, input: SourceSettingsInput = {}
     }
     case 'page':
       return { kind, contentSelector: optional(input.contentSelector) };
+    case 'youtube':
+      return { kind };
     default:
       throw new InvalidSourceError(`unknown source kind "${kind as string}"`);
   }
@@ -155,6 +162,31 @@ function validFetchMode(fetchMode: FetchMode): FetchMode {
   return fetchMode;
 }
 
+/**
+ * A YouTube source is a channel read through its feed: its URL must name the channel (a
+ * handle is resolved to it first) and it is read over plain HTTP. Returns the channel URL.
+ */
+export function youtubeChannelSource(url: string, fetchMode: FetchMode): string {
+  if (fetchMode !== 'http') {
+    throw new InvalidSourceError('youtube sources are read over http, not in a browser');
+  }
+  const channelId = youtubeChannelIdOf(url);
+  if (!channelId) {
+    throw new InvalidSourceError('youtube sources need a channel URL (youtube.com/channel/UC…)');
+  }
+  return youtubeChannelUrl(channelId);
+}
+
+/** Where a source is read from: a YouTube channel's feed, otherwise the source URL itself. */
+export function fetchUrlOf(kind: SourceKind, url: string): string {
+  const channelId = kind === 'youtube' ? youtubeChannelIdOf(url) : undefined;
+  return channelId ? youtubeFeedUrl(channelId) : url;
+}
+
+function validTarget(settings: SourceSettings, url: string, fetchMode: FetchMode): string {
+  return settings.kind === 'youtube' ? youtubeChannelSource(url, fetchMode) : url;
+}
+
 /** Waiting only means something in a browser, so HTTP sources never keep a selector. */
 function validWaitForSelector(fetchMode: FetchMode, selector: string | null): string | null {
   const trimmed = selector?.trim() || null;
@@ -178,7 +210,7 @@ export class Source {
       id: props.id,
       ownerId: props.ownerId,
       name: validName(props.name),
-      url: validUrl(props.url),
+      url: validTarget(props.settings, validUrl(props.url), fetchMode),
       fetchMode,
       waitForSelector: validWaitForSelector(fetchMode, props.waitForSelector ?? null),
       settings: props.settings,
@@ -212,6 +244,10 @@ export class Source {
     return this.#state.settings.kind;
   }
 
+  get fetchUrl(): string {
+    return fetchUrlOf(this.kind, this.url);
+  }
+
   get fetchMode(): FetchMode {
     return this.#state.fetchMode;
   }
@@ -243,11 +279,15 @@ export class Source {
   update(changes: SourceChanges, now: Date): void {
     if (this.isArchived) throw new ArchivedSourceError(this.id);
     const s = this.#state;
-    const url = changes.url === undefined ? s.url : validUrl(changes.url);
     const settings = changes.settings ?? s.settings;
-    const restarts = url !== s.url || settings.kind !== s.settings.kind;
     const fetchMode =
       changes.fetchMode === undefined ? s.fetchMode : validFetchMode(changes.fetchMode);
+    const url = validTarget(
+      settings,
+      changes.url === undefined ? s.url : validUrl(changes.url),
+      fetchMode,
+    );
+    const restarts = url !== s.url || settings.kind !== s.settings.kind;
     const waitForSelector = validWaitForSelector(
       fetchMode,
       changes.waitForSelector === undefined ? s.waitForSelector : changes.waitForSelector,

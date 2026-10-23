@@ -49,6 +49,14 @@ describe('KyselySourceRepository', () => {
     expect((await repository.findById(listing.id))?.toSnapshot()).toEqual(listing.toSnapshot());
   });
 
+  it('round-trips YouTube channels', async () => {
+    const channel = source('https://www.youtube.com/channel/UCHnyfMqiRRG1u-2MsSQLbXA', {
+      kind: 'youtube',
+    });
+    await repository.save(channel);
+    expect((await repository.findById(channel.id))?.toSnapshot()).toEqual(channel.toSnapshot());
+  });
+
   it('enforces one active source per URL, but allows re-adding an archived one', async () => {
     const first = source('https://example.com/feed.xml');
     await repository.save(first);

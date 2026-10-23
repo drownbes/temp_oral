@@ -11,7 +11,9 @@ import {
 import type { SourceRepository } from '../domain/source-repository.ts';
 import { previewCommandOf, type SourceChecker } from './check-source.ts';
 import type { CheckedSource } from './create-source.ts';
+import type { YouTubeChannels } from './ports.ts';
 import { assertSupported } from './supported-sources.ts';
+import { sourceUrlFor } from './youtube-videos.ts';
 
 export interface UpdateSourceCommand extends SourceSettingsInput {
   readonly name?: string;
@@ -27,6 +29,7 @@ export interface UpdateSourceCommand extends SourceSettingsInput {
 export interface UpdateSourceDeps {
   readonly repository: SourceRepository;
   readonly checker: SourceChecker;
+  readonly channels: YouTubeChannels;
   readonly clock: Clock;
 }
 
@@ -40,7 +43,7 @@ export class UpdateSource {
   }
 
   async execute(id: SourceId, command: UpdateSourceCommand): Promise<CheckedSource> {
-    const { repository, checker, clock } = this.#deps;
+    const { repository, checker, channels, clock } = this.#deps;
     const source = await repository.findById(id);
     if (!source || source.isArchived) throw new SourceNotFoundError(id);
 
@@ -56,10 +59,15 @@ export class UpdateSource {
       ? sourceSettings(command.kind ?? source.kind, options as SourceSettingsInput)
       : undefined;
 
+    // A handle given for a channel is looked up only when the URL is new
+    const url =
+      command.url === undefined
+        ? undefined
+        : await sourceUrlFor(channels, settings?.kind ?? source.kind, command.url);
     source.update(
       {
         name: command.name,
-        url: command.url,
+        url,
         fetchMode: command.fetchMode,
         waitForSelector: command.waitForSelector,
         enabled: command.enabled,

@@ -34,6 +34,7 @@ import { S3ItemContentStore } from './infrastructure/storage/s3-item-content-sto
 import { S3ItemExporter } from './infrastructure/storage/s3-item-exporter.ts';
 import { TemporalBrowserPreviewer } from './infrastructure/temporal/temporal-browser-previewer.ts';
 import { TemporalCollectionStarter } from './infrastructure/temporal/temporal-collection-starter.ts';
+import { YouTubeClient } from './infrastructure/youtube/youtube-client.ts';
 import { sourceRoutes } from './interface/http/routes.ts';
 import {
   createBrowserActivities,
@@ -43,11 +44,14 @@ import { SOURCES_BROWSER_TASK_QUEUE } from './interface/temporal/definitions.ts'
 
 /** Composition of the sources context: binds its ports to adapters on shared infrastructure. */
 function adapters(deps: ModuleDeps) {
+  const youtubeClient = new YouTubeClient(deps.config.fetch);
   const db = deps.db.withTables<SourcesTables>();
   return {
     sources: new KyselySourceRepository(db),
     items: new KyselyItemRepository(db),
     fetcher: new UndiciPageFetcher(deps.config.fetch),
+    // Channel lookups for the API, transcripts for the collector
+    youtube: { channels: youtubeClient, transcripts: youtubeClient },
     extractors: {
       feedReader: new FeedsmithFeedReader(),
       linkExtractor: new LinkedomLinkExtractor(),
@@ -65,18 +69,19 @@ export const sourcesModule: ModuleDefinition = {
     folder: fileURLToPath(new URL('./infrastructure/persistence/migrations', import.meta.url)),
   },
   http(deps) {
-    const { sources, items, fetcher, extractors, clock } = adapters(deps);
+    const { sources, items, fetcher, extractors, youtube, clock } = adapters(deps);
     // The API has no browser: browser previews run on the browser worker
     const preview = new PreviewSource({
       fetcher,
       ...extractors,
+      ...youtube,
       browserPreviewer: new TemporalBrowserPreviewer(deps.temporal),
     });
     // New and changed sources are tried with the preview before they are saved
     const checker = new CheckSource(preview);
     return sourceRoutes({
-      create: new CreateSource({ repository: sources, checker, clock }),
-      update: new UpdateSource({ repository: sources, checker, clock }),
+      create: new CreateSource({ repository: sources, checker, channels: youtube.channels, clock }),
+      update: new UpdateSource({ repository: sources, checker, channels: youtube.channels, clock }),
       archive: new ArchiveSource({ repository: sources, clock }),
       get: new GetSource(sources),
       list: new ListSources(sources),
@@ -86,7 +91,7 @@ export const sourcesModule: ModuleDefinition = {
     });
   },
   worker(deps) {
-    const { sources, items, fetcher, extractors, clock } = adapters(deps);
+    const { sources, items, fetcher, extractors, youtube, clock } = adapters(deps);
     const db = deps.db.withTables<SourcesTables>();
     const contentStore = new S3ItemContentStore(deps.s3, deps.config.s3.bucket);
     const collectSource = (pageFetcher: PageFetcher) =>
@@ -96,6 +101,7 @@ export const sourcesModule: ModuleDefinition = {
         snapshots: new KyselyPageSnapshotRepository(db),
         fetcher: pageFetcher,
         ...extractors,
+        ...youtube,
         contentStore,
         clock,
       });
@@ -135,7 +141,7 @@ export const sourcesModule: ModuleDefinition = {
         taskQueue: SOURCES_BROWSER_TASK_QUEUE,
         activities: createBrowserActivities({
           collectSource: collectSource(browserFetcher),
-          previewSource: new PreviewSource({ fetcher: browserFetcher, ...extractors }),
+          previewSource: new PreviewSource({ fetcher: browserFetcher, ...extractors, ...youtube }),
         }),
         maxConcurrentActivities: deps.config.browser.concurrency,
       });

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA"/>
+ <id>yt:channel:HnyfMqiRRG1u-2MsSQLbXA</id>
+ <yt:channelId>HnyfMqiRRG1u-2MsSQLbXA</yt:channelId>
+ <title>Veritasium</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCHnyfMqiRRG1u-2MsSQLbXA"/>
+ <published>2010-07-21T07:18:02+00:00</published>
+ <entry>
+  <id>yt:video:NiCgcUTL9_Q</id>
+  <yt:videoId>NiCgcUTL9_Q</yt:videoId>
+  <yt:channelId>UCHnyfMqiRRG1u-2MsSQLbXA</yt:channelId>
+  <title>The experiment that failed &amp; changed physics</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=NiCgcUTL9_Q"/>
+  <published>2026-10-20T15:00:00+00:00</published>
+  <updated>2026-10-21T09:00:00+00:00</updated>
+  <media:group>
+   <media:title>The experiment that failed &amp; changed physics</media:title>
+   <media:thumbnail url="https://i2.ytimg.com/vi/NiCgcUTL9_Q/hqdefault.jpg" width="480" height="360"/>
+   <media:description>In 1887 two physicists tried to measure the ether.
+
+Sponsored by &lt;nobody&gt;.</media:description>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:wxLc-gFORPQ</id>
+  <yt:videoId>wxLc-gFORPQ</yt:videoId>
+  <title>A short one</title>
+  <link rel="alternate" href="https://www.youtube.com/shorts/wxLc-gFORPQ"/>
+  <published>2026-10-19T12:00:00+00:00</published>
+  <media:group>
+   <media:description></media:description>
+  </media:group>
+ </entry>
+</feed>

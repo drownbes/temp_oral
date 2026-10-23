@@ -5,6 +5,7 @@ import { CreateSource } from './create-source.ts';
 import { PreviewSource } from './preview-source.ts';
 import {
   collectSourceDeps,
+  FakeYouTube,
   InMemoryItemContentStore,
   InMemoryItemRepository,
   InMemorySourceRepository,
@@ -36,6 +37,7 @@ describe('fetching article pages for teaser feeds', () => {
     source = await new CreateSource({
       repository: sources,
       checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
       clock,
     })
       .execute({
@@ -98,6 +100,7 @@ describe('fetching article pages for teaser feeds', () => {
     await new UpdateSource({
       repository: sources,
       checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
       clock,
     }).execute(source.id, {
       fetchArticles: false,
@@ -110,6 +113,7 @@ describe('fetching article pages for teaser feeds', () => {
     await new UpdateSource({
       repository: sources,
       checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
       clock,
     }).execute(source.id, {
       url: 'https://example.com/other.xml',

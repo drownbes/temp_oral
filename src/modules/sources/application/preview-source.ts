@@ -3,8 +3,9 @@ import { uniqueEntries } from '../domain/collection.ts';
 import { InvalidSourceError } from '../domain/errors.ts';
 import { normalizePageText } from '../domain/page-watch.ts';
 import type { FetchMode, SourceKind, SourceSettingsInput } from '../domain/source.ts';
-import { sourceSettings } from '../domain/source.ts';
+import { fetchUrlOf, sourceSettings, youtubeChannelSource } from '../domain/source.ts';
 import { canonicalizeUrl } from '../domain/url.ts';
+import { isYouTubeShort } from '../domain/youtube.ts';
 import { fetchArticle } from './article-content.ts';
 import type {
   ArticleExtractor,
@@ -12,8 +13,11 @@ import type {
   LinkExtractor,
   PageFetcher,
   PageTextExtractor,
+  VideoTranscripts,
+  YouTubeChannels,
 } from './ports.ts';
 import { assertSupported } from './supported-sources.ts';
+import { fetchTranscript, sourceUrlFor } from './youtube-videos.ts';
 
 export interface PreviewSourceCommand extends SourceSettingsInput {
   readonly url: string;
@@ -50,14 +54,21 @@ export interface PageSample {
 export interface SourcePreview {
   /** After redirects. */
   readonly url: string;
-  /** Feed entries, or listing links that pass the selector and pattern. */
+  /** Feed entries, listing links that pass the selector and pattern, or videos (no Shorts). */
   readonly entryCount: number;
   readonly entries: readonly PreviewEntry[];
   /** Null when no article would be fetched (full-text feed, disabled, page watch). */
   readonly articleSample: ArticleSample | null;
   /** Page watch only. */
   readonly pageSample: PageSample | null;
+  /** YouTube only: the first video's transcript. */
+  readonly transcriptSample: TranscriptSample | null;
 }
+
+/** What the first video's captions give; without them its description is used instead. */
+export type TranscriptSample =
+  | { readonly url: string; readonly chars: number; readonly excerpt: string }
+  | { readonly url: string; readonly error: string };
 
 /**
  * Port: runs a browser preview where a browser is (the browser worker, in production), so
@@ -74,6 +85,8 @@ export interface PreviewSourceDeps {
   readonly linkExtractor: LinkExtractor;
   readonly articleExtractor: ArticleExtractor;
   readonly pageTextExtractor: PageTextExtractor;
+  readonly channels: YouTubeChannels;
+  readonly transcripts: VideoTranscripts;
   /** Set where `fetcher` cannot render pages; browser previews are then handed to it. */
   readonly browserPreviewer?: BrowserPreviewer;
 }
@@ -94,14 +107,21 @@ export class PreviewSource {
     const { fetcher, feedReader, linkExtractor, articleExtractor, pageTextExtractor } = this.#deps;
     const settings = sourceSettings(command.kind, command);
     assertSupported(settings.kind, command.fetchMode);
-    const url = canonicalizeUrl(command.url);
-    if (!url) throw new InvalidSourceError('url must be an absolute http(s) URL');
+    const canonical = canonicalizeUrl(command.url);
+    if (!canonical) throw new InvalidSourceError('url must be an absolute http(s) URL');
+    const url =
+      settings.kind === 'youtube'
+        ? youtubeChannelSource(
+            await sourceUrlFor(this.#deps.channels, settings.kind, canonical),
+            command.fetchMode,
+          )
+        : canonical;
     if (command.fetchMode === 'browser' && this.#deps.browserPreviewer) {
       return this.#deps.browserPreviewer.preview({ ...command, url });
     }
 
     const page = await fetcher.fetch({
-      url,
+      url: fetchUrlOf(settings.kind, url),
       validators: { etag: null, lastModified: null },
       waitForSelector: command.fetchMode === 'browser' ? command.waitForSelector : null,
     });
@@ -121,19 +141,22 @@ export class PreviewSource {
           lines: text ? text.split('\n').length : 0,
           excerpt: text.slice(0, PAGE_EXCERPT_LENGTH),
         },
+        transcriptSample: null,
       };
     }
 
     const entries =
       settings.kind === 'feed'
         ? feedReader.read(page.body, page.url)
-        : uniqueEntries(
-            linkExtractor
-              .extract(page.body, page.url, settings.linkSelector)
-              .filter((link) => isListingArticle(link.url, page.url, settings.urlPattern))
-              .map((link) => ({ ...link, publishedAt: null, text: '' })),
-            page.url,
-          );
+        : settings.kind === 'youtube'
+          ? feedReader.read(page.body, page.url).filter((e) => !isYouTubeShort(e.url))
+          : uniqueEntries(
+              linkExtractor
+                .extract(page.body, page.url, settings.linkSelector)
+                .filter((link) => isListingArticle(link.url, page.url, settings.urlPattern))
+                .map((link) => ({ ...link, publishedAt: null, text: '' })),
+              page.url,
+            );
 
     const [first] = entries;
     let articleSample: ArticleSample | null = null;
@@ -148,8 +171,20 @@ export class PreviewSource {
           }
         : { url: first.url, error: article.reason };
     }
+    let transcriptSample: TranscriptSample | null = null;
+    if (first && settings.kind === 'youtube') {
+      const transcript = await fetchTranscript(this.#deps.transcripts, first.url);
+      transcriptSample = transcript.ok
+        ? {
+            url: first.url,
+            chars: transcript.text.length,
+            excerpt: transcript.text.slice(0, EXCERPT_LENGTH),
+          }
+        : { url: first.url, error: transcript.reason };
+    }
     return {
-      url: page.url,
+      // A channel is saved under its channel URL, not its feed's
+      url: settings.kind === 'youtube' ? url : page.url,
       entryCount: entries.length,
       entries: entries.slice(0, MAX_ENTRIES).map((e) => ({
         url: e.url,
@@ -159,6 +194,7 @@ export class PreviewSource {
       })),
       articleSample,
       pageSample: null,
+      transcriptSample,
     };
   }
 }

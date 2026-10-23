@@ -1,3 +1,4 @@
+import { SourceFetchError } from '../../domain/errors.ts';
 import { Item, type ItemContentKeys, type ItemId, type ItemSnapshot } from '../../domain/item.ts';
 import type { ItemRepository } from '../../domain/item-repository.ts';
 import { PageSnapshot, type PageSnapshotState } from '../../domain/page-watch.ts';
@@ -22,6 +23,8 @@ import type {
   PageFetcher,
   PageText,
   PageTextExtractor,
+  VideoTranscripts,
+  YouTubeChannels,
 } from '../ports.ts';
 import type { PreviewSourceCommand } from '../preview-source.ts';
 
@@ -282,13 +285,37 @@ export function collectSourceDeps(deps: {
   contentStore: InMemoryItemContentStore;
   clock: { now(): Date };
   snapshots?: InMemoryPageSnapshotRepository;
+  youtube?: FakeYouTube;
 }) {
+  const { youtube = new FakeYouTube(), ...stores } = deps;
   return {
-    ...deps,
+    ...stores,
     snapshots: deps.snapshots ?? new InMemoryPageSnapshotRepository(),
+    channels: youtube,
+    transcripts: youtube,
     feedReader: new JsonFeedReader(),
     linkExtractor: new FakeLinkExtractor(),
     articleExtractor: new FakeArticleExtractor(),
     pageTextExtractor: new FakePageTextExtractor(),
   };
+}
+
+/** Channels by handle URL and transcripts by video id; an Error value is thrown. */
+export class FakeYouTube implements YouTubeChannels, VideoTranscripts {
+  readonly channels = new Map<string, string>();
+  readonly transcripts = new Map<string, string | Error>();
+  readonly transcribed: string[] = [];
+
+  async channelIdOf(url: string): Promise<string> {
+    const id = this.channels.get(url);
+    if (!id) throw new SourceFetchError(`${url} is not a YouTube channel`);
+    return id;
+  }
+
+  async transcriptOf(videoId: string): Promise<string | undefined> {
+    this.transcribed.push(videoId);
+    const transcript = this.transcripts.get(videoId);
+    if (transcript instanceof Error) throw transcript;
+    return transcript;
+  }
 }

@@ -8,6 +8,7 @@ import { ExportItems } from './export-items.ts';
 import { RecordCollectionFailure } from './record-collection-failure.ts';
 import {
   collectSourceDeps,
+  FakeYouTube,
   InMemoryItemContentStore,
   InMemoryItemExporter,
   InMemoryItemRepository,
@@ -39,6 +40,7 @@ describe('collecting a source and exporting a run', () => {
     source = await new CreateSource({
       repository: sources,
       checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
       clock,
     })
       .execute({
@@ -164,6 +166,7 @@ describe('collecting a source and exporting a run', () => {
     await new UpdateSource({
       repository: sources,
       checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
       clock,
     }).execute(source.id, { enabled: false });
     expect(await collect('2026-10-21')).toMatchObject({ status: 'skipped' });

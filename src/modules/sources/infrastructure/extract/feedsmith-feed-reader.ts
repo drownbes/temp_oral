@@ -55,7 +55,11 @@ function rawEntries(parsed: AnyFeed<string>): RawEntry[] {
           link: link?.href,
           title: entry.title?.value,
           date: entry.published ?? entry.updated,
-          html: entry.content?.value ?? entry.summary?.value,
+          // YouTube channel feeds only carry a Media RSS description, as plain text
+          html:
+            entry.content?.value ??
+            entry.summary?.value ??
+            escapeText(entry.media?.groups?.[0]?.description?.value),
         };
       });
     case 'rdf':

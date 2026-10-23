@@ -11,7 +11,9 @@ import {
 } from '../domain/source.ts';
 import type { SourceRepository } from '../domain/source-repository.ts';
 import { previewCommandOf, type SourceChecker } from './check-source.ts';
+import type { YouTubeChannels } from './ports.ts';
 import { assertSupported } from './supported-sources.ts';
+import { sourceUrlFor } from './youtube-videos.ts';
 
 export interface CreateSourceCommand extends SourceSettingsInput {
   readonly ownerId: string;
@@ -27,6 +29,7 @@ export interface CreateSourceCommand extends SourceSettingsInput {
 export interface CreateSourceDeps {
   readonly repository: SourceRepository;
   readonly checker: SourceChecker;
+  readonly channels: YouTubeChannels;
   readonly clock: Clock;
 }
 
@@ -45,12 +48,12 @@ export class CreateSource {
   }
 
   async execute(command: CreateSourceCommand): Promise<CheckedSource> {
-    const { repository, checker, clock } = this.#deps;
+    const { repository, checker, channels, clock } = this.#deps;
     const source = Source.create({
       id: newSourceId(),
       ownerId: command.ownerId,
       name: command.name,
-      url: command.url,
+      url: await sourceUrlFor(channels, command.kind, command.url),
       fetchMode: command.fetchMode,
       waitForSelector: command.waitForSelector,
       settings: sourceSettings(command.kind, command),

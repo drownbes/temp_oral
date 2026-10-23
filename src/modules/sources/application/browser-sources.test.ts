@@ -10,6 +10,7 @@ import {
 } from './preview-source.ts';
 import {
   collectSourceDeps,
+  FakeYouTube,
   InMemoryItemContentStore,
   InMemoryItemRepository,
   InMemorySourceRepository,
@@ -28,7 +29,14 @@ class RecordingBrowserPreviewer implements BrowserPreviewer {
 
   async preview(command: PreviewSourceCommand): Promise<SourcePreview> {
     this.commands.push(command);
-    return { url: command.url, entryCount: 0, entries: [], articleSample: null, pageSample: null };
+    return {
+      url: command.url,
+      entryCount: 0,
+      entries: [],
+      articleSample: null,
+      pageSample: null,
+      transcriptSample: null,
+    };
   }
 }
 
@@ -48,7 +56,12 @@ describe('browser sources', () => {
 
   const deps = () => collectSourceDeps({ sources, items, fetcher, contentStore, clock });
   const createListing = () =>
-    new CreateSource({ repository: sources, checker: new PassingSourceChecker(), clock })
+    new CreateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
+      clock,
+    })
       .execute({
         ownerId: 'default',
         name: 'SPA news',

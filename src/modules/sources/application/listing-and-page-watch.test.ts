@@ -7,6 +7,7 @@ import { ExportItems } from './export-items.ts';
 import { PreviewSource } from './preview-source.ts';
 import {
   collectSourceDeps,
+  FakeYouTube,
   InMemoryItemContentStore,
   InMemoryItemExporter,
   InMemoryItemRepository,
@@ -48,7 +49,12 @@ describe('listing pages and watched pages', () => {
 
   const deps = () => collectSourceDeps({ sources, items, fetcher, contentStore, clock, snapshots });
   const create = (url: string, kind: SourceKind, settings: SourceSettingsInput = {}) =>
-    new CreateSource({ repository: sources, checker: new PassingSourceChecker(), clock })
+    new CreateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      channels: new FakeYouTube(),
+      clock,
+    })
       .execute({
         ownerId: 'default',
         name: 'Example',
@@ -172,6 +178,7 @@ describe('listing pages and watched pages', () => {
       await new UpdateSource({
         repository: sources,
         checker: new PassingSourceChecker(),
+        channels: new FakeYouTube(),
         clock,
       }).execute(source.id as never, {
         url: other,

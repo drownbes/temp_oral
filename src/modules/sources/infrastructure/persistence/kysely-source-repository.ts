@@ -92,6 +92,8 @@ function toSettings(row: Selectable<SourceTable>): SourceSettings {
       return { kind: 'listing', linkSelector: row.link_selector, urlPattern: row.url_pattern };
     case 'page':
       return { kind: 'page', contentSelector: row.content_selector };
+    case 'youtube':
+      return { kind: 'youtube' };
   }
 }
 

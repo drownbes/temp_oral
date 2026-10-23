@@ -13,7 +13,12 @@ import { CreateSource, type CreateSourceCommand } from './create-source.ts';
 import { GetSource } from './get-source.ts';
 import { ListSources } from './list-sources.ts';
 import type { PreviewSourceCommand, SourcePreview } from './preview-source.ts';
-import { InMemorySourceRepository, mutableClock, PassingSourceChecker } from './testing/fakes.ts';
+import {
+  FakeYouTube,
+  InMemorySourceRepository,
+  mutableClock,
+  PassingSourceChecker,
+} from './testing/fakes.ts';
 import { UpdateSource } from './update-source.ts';
 
 describe('managing sources', () => {
@@ -27,7 +32,7 @@ describe('managing sources', () => {
   });
 
   const create = (overrides: Partial<CreateSourceCommand> = {}) =>
-    new CreateSource({ repository, checker, clock })
+    new CreateSource({ repository, checker, channels: new FakeYouTube(), clock })
       .execute({
         ownerId: 'default',
         name: 'Example',
@@ -82,7 +87,7 @@ describe('managing sources', () => {
   it('updates fields and refuses to take over another source URL', async () => {
     const first = await create();
     const second = await create({ url: 'https://example.org/rss' });
-    const update = new UpdateSource({ repository, checker, clock });
+    const update = new UpdateSource({ repository, checker, channels: new FakeYouTube(), clock });
 
     const { source } = await update.execute(first.id, { name: 'Renamed', enabled: false });
     expect(source).toMatchObject({ name: 'Renamed', enabled: false, url: first.url });
@@ -115,6 +120,7 @@ class StubPreviewer implements SourcePreviewer {
       entries: [],
       articleSample: null,
       pageSample: { title: '', chars: 120, lines: 4, excerpt: '' },
+      transcriptSample: null,
       ...this.answer,
     };
   }
@@ -132,7 +138,12 @@ describe('checking a source before it is saved', () => {
 
   const checker = () => new CheckSource(previewer);
   const create = (overrides: Partial<CreateSourceCommand> = {}) =>
-    new CreateSource({ repository, checker: checker(), clock }).execute({
+    new CreateSource({
+      repository,
+      checker: checker(),
+      channels: new FakeYouTube(),
+      clock,
+    }).execute({
       ownerId: 'default',
       name: 'Example',
       url: 'https://example.com/news/',
@@ -214,7 +225,12 @@ describe('checking a source before it is saved', () => {
 
   it('checks an update only when how the source is read changes', async () => {
     const { source } = await create();
-    const update = new UpdateSource({ repository, checker: checker(), clock });
+    const update = new UpdateSource({
+      repository,
+      checker: checker(),
+      channels: new FakeYouTube(),
+      clock,
+    });
     previewer.commands.length = 0;
 
     await update.execute(source.id, { name: 'Renamed' });
