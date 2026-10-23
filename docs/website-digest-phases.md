@@ -458,6 +458,63 @@ without cost.
 **Goal:** fetch pages that need a browser, without making the normal worker depend on
 Chromium.
 
+> **Status: done** (2026-10-22). How the implementation differs from the plan below:
+> - **The whole `collectSource` runs on `sources-browser`, not a fetch-only activity.** A
+>   fetch activity would return the page HTML (up to `FETCH_MAX_BYTES`) through workflow
+>   history, past Temporal's payload limit and against the claim-check design. The browser
+>   worker builds the same `CollectSource` on a `PlaywrightPageFetcher`, so use cases are
+>   unchanged and a browser listing's article pages are rendered too.
+>   `listCollectableSources` returns `{ sourceId, fetchMode }`, and the workflow picks the
+>   queue per source.
+> - **No browser worker:** browser activities have a `scheduleToStartTimeout` of 15 minutes,
+>   after which the source is reported failed ("no browser worker took the page…") and the run
+>   exports as usual.
+> - **`waitForSelector`** (migration `0005_add_wait_for_selector`) instead of
+>   `waitFor: 'networkidle' | selector`: a CSS selector, or null for network idle. Kept only for
+>   browser sources (domain rule), applied to the source page, not to its articles. A selector
+>   that never matches is a permanent `SourceFetchError`.
+> - **SSRF:** every request the page makes is answered through the same address-guarded undici
+>   agent as plain fetches (`route.fulfill`), so redirects, scripts and XHR can't reach private
+>   addresses or rebind DNS. WebSockets, service workers and WebRTC UDP are blocked; images,
+>   media and fonts are skipped.
+> - **Browser lifecycle:** lazily launched on the first browser fetch (so a browser worker
+>   starts without touching Chromium), replaced if it disconnects, closed via
+>   `ModuleDeps.onShutdown` (new). One context per fetch, `BROWSER_CONCURRENCY` (2) collections
+>   per worker (`WorkerDefinition.maxConcurrentActivities`, new).
+> - **Preview:** the API stays Chromium-free. A browser preview runs `previewSourceWorkflow` on
+>   the `sources` queue, whose activity runs on `sources-browser` (20 s pickup timeout →
+>   422 `SOURCE_KIND_NOT_SUPPORTED`).
+> - **Process split:** `ModuleDefinition.worker` may return several definitions;
+>   `WORKER_TASK_QUEUES` limits a worker to some queues. Dev: one worker with
+>   `BROWSER_FETCH_ENABLED=true`, no extra process-compose entry. Production: a second
+>   deployment with `BROWSER_FETCH_ENABLED=true WORKER_TASK_QUEUES=sources-browser`.
+> - **Config:** `BROWSER_EXECUTABLE_PATH` (optional; Playwright otherwise uses
+>   `PLAYWRIGHT_BROWSERS_PATH`, set by the Nix shell to `playwright-driver.browsers` with only the
+>   headless shell) instead of `PLAYWRIGHT_CHROMIUM_PATH`, plus `BROWSER_TIMEOUT_MS` (30000).
+>   `playwright-core` is pinned to the flake's `playwright-driver` version (1.64.1); bump them
+>   together.
+> - **Verified end to end** (browser-only worker next to the normal one): a JS-only fixture page
+>   (table filled by `fetch()`) baselined, then produced one `change` item ("+ Kernel 7.4") on
+>   the next run; the Steam Deck news hub (0 links over HTTP, 12 rendered) baselined its posts,
+>   and a new post was collected with its rendered article (3.9k chars of patch notes). The
+>   history shows 20 `collectSource` on `sources` and 2 on `sources-browser`; the trace runs
+>   API → workflow → browser worker → `browser.fetch` → S3/Postgres.
+> - **Limits found:** content in shadow DOM (chromestatus.com, a Lit app) is not in
+>   `page.content()`, so such sites stay empty.
+>
+> Follow-ups from a full digest run with the browser source (2026-10-23; 89 items, 14 sources,
+> no failures):
+> - **Listing titles:** links are often whole cards ("This update is for the SteamOS Beta…
+>   15 hours ago"). `listingItemTitle` takes the part of the card that is the article's title
+>   (without the site name, e.g. "SteamOS 3.9.4 Beta"), else the link text, else the article
+>   title. Feed titles are unchanged.
+> - **Consent notices:** on a short Steam post written without `<p>` paragraphs, Readability
+>   took the cookie banner (334 chars) for the article; without the banner it takes the
+>   "More events" sidebar. The extractor now rejects consent notices (short text with
+>   several consent phrases), so such a page counts as unreadable instead of being summarised.
+>   Over the 171 articles stored so far it rejected only that page. Such posts are still
+>   not collected; that needs a universal fallback for pages Readability cannot read.
+
 - **Shared:**
   - `ModuleDefinition.worker` may return `WorkerDefinition | WorkerDefinition[]`;
     `worker-runtime.ts` flattens the result.

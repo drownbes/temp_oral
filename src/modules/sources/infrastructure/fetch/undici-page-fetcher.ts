@@ -3,6 +3,7 @@ import type { FetchRequest, FetchResult, PageFetcher } from '../../application/p
 import { SourceFetchError } from '../../domain/errors.ts';
 import type { FetchValidators } from '../../domain/source.ts';
 import { assertPublicHost, guardedLookup } from './address-guard.ts';
+import { readBody } from './read-body.ts';
 
 export interface UndiciPageFetcherOptions {
   readonly timeoutMs: number;
@@ -69,7 +70,7 @@ export class UndiciPageFetcher implements PageFetcher {
         status: 'ok',
         url: current.href,
         contentType,
-        body: decode(await this.#readBody(response, current), contentType),
+        body: decode(await readBody(response, current, this.#options.maxBytes), contentType),
         validators: {
           etag: response.headers.get('etag'),
           lastModified: response.headers.get('last-modified'),
@@ -94,32 +95,6 @@ export class UndiciPageFetcher implements PageFetcher {
       if (cause instanceof SourceFetchError) throw cause;
       throw err;
     }
-  }
-
-  async #readBody(response: Response, url: URL): Promise<Uint8Array> {
-    const { maxBytes } = this.#options;
-    const tooLarge = () => new SourceFetchError(`${url} is larger than ${maxBytes} bytes`);
-    if (Number(response.headers.get('content-length') ?? 0) > maxBytes) {
-      await response.body?.cancel();
-      throw tooLarge();
-    }
-    if (!response.body) return new Uint8Array();
-
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for await (const chunk of response.body) {
-      size += chunk.byteLength;
-      // Leaving the loop cancels the stream, so the rest is never downloaded
-      if (size > maxBytes) throw tooLarge();
-      chunks.push(chunk);
-    }
-    const body = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      body.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return body;
   }
 }
 

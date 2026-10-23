@@ -16,6 +16,7 @@ export interface UpdateSourceCommand extends SourceSettingsInput {
   readonly url?: string;
   readonly kind?: SourceKind;
   readonly fetchMode?: FetchMode;
+  readonly waitForSelector?: string | null;
   readonly enabled?: boolean;
 }
 
@@ -55,6 +56,7 @@ export class UpdateSource {
         name: command.name,
         url: command.url,
         fetchMode: command.fetchMode,
+        waitForSelector: command.waitForSelector,
         enabled: command.enabled,
         settings,
       },

@@ -41,6 +41,19 @@ const EnvSchema = z
     // Keep false in production: URLs come from the API, so private addresses would be SSRF
     FETCH_ALLOW_PRIVATE_NETWORKS: z.stringbool().default(false),
 
+    // Headless Chromium for JS-rendered sources. Only the worker serving the sources-browser
+    // queue needs it; without it, browser sources fail and are reported as failed.
+    BROWSER_FETCH_ENABLED: z.stringbool().default(false),
+    // Chromium binary; when unset, Playwright's own (PLAYWRIGHT_BROWSERS_PATH or its cache)
+    BROWSER_EXECUTABLE_PATH: z.string().min(1).optional(),
+    // Sources rendered at the same time by one worker; each one is a browser context
+    BROWSER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+    // Navigation plus waiting for the content, per page
+    BROWSER_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+
+    // Comma-separated task queues this worker serves; all of them when unset
+    WORKER_TASK_QUEUES: z.string().min(1).optional(),
+
     // LLM: `stub` answers instantly with fake output, for local development without cost
     LLM_PROVIDER: z.enum(['openai', 'stub']).default('openai'),
     OPENAI_API_KEY: z.string().min(1).optional(),
@@ -112,6 +125,21 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       maxBytes: env.FETCH_MAX_BYTES,
       userAgent: env.FETCH_USER_AGENT,
       allowPrivateNetworks: env.FETCH_ALLOW_PRIVATE_NETWORKS,
+    },
+    browser: {
+      enabled: env.BROWSER_FETCH_ENABLED,
+      executablePath: env.BROWSER_EXECUTABLE_PATH,
+      concurrency: env.BROWSER_CONCURRENCY,
+      timeoutMs: env.BROWSER_TIMEOUT_MS,
+    },
+    worker: {
+      taskQueues: env.WORKER_TASK_QUEUES
+        ? new Set(
+            env.WORKER_TASK_QUEUES.split(',')
+              .map((queue) => queue.trim())
+              .filter(Boolean),
+          )
+        : undefined,
     },
     llm: {
       provider: env.LLM_PROVIDER,

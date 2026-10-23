@@ -76,6 +76,29 @@ describe('Source', () => {
     });
   });
 
+  it('keeps a wait selector only for browser sources', () => {
+    expect(create({ waitForSelector: 'main' }).toSnapshot().waitForSelector).toBeNull();
+
+    const source = create({ fetchMode: 'browser', waitForSelector: ' .news-list ' });
+    expect(source.toSnapshot().waitForSelector).toBe('.news-list');
+
+    source.update({ name: 'Renamed' }, later);
+    expect(source.toSnapshot().waitForSelector).toBe('.news-list');
+
+    source.update({ waitForSelector: ' ' }, later);
+    expect(source.toSnapshot().waitForSelector).toBeNull();
+
+    source.update({ waitForSelector: 'article' }, later);
+    source.update({ fetchMode: 'http' }, later);
+    expect(source.toSnapshot()).toMatchObject({ fetchMode: 'http', waitForSelector: null });
+  });
+
+  it('rejects an overly long wait selector', () => {
+    expect(() => create({ fetchMode: 'browser', waitForSelector: 'a'.repeat(501) })).toThrow(
+      new InvalidSourceError('waitForSelector is too long'),
+    );
+  });
+
   it('cannot be changed once archived', () => {
     const source = create();
     source.archive(later);

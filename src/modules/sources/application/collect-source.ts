@@ -1,5 +1,10 @@
 import type { Clock } from '#shared/kernel/clock.ts';
-import { isListingArticle, prefersArticleText, wantsArticlePage } from '../domain/article.ts';
+import {
+  isListingArticle,
+  listingItemTitle,
+  prefersArticleText,
+  wantsArticlePage,
+} from '../domain/article.ts';
 import { planCollection, uniqueEntries } from '../domain/collection.ts';
 import { SourceNotFoundError } from '../domain/errors.ts';
 import { Item, itemIdFor } from '../domain/item.ts';
@@ -97,8 +102,8 @@ export class CollectSource {
     if (!source) throw new SourceNotFoundError(sourceId);
     if (!source.isCollectable) return { sourceId, status: 'skipped', ...NOTHING_NEW };
 
-    const { validators, settings } = source.toSnapshot();
-    const page = await fetcher.fetch({ url: source.url, validators });
+    const { validators, settings, waitForSelector } = source.toSnapshot();
+    const page = await fetcher.fetch({ url: source.url, validators, waitForSelector });
     if (page.status === 'not-modified') {
       source.recordSuccess(validators, clock.now());
       await sources.save(source);
@@ -168,7 +173,11 @@ export class CollectSource {
         id: itemId,
         sourceId: source.id,
         url: entry.url,
-        title: entry.title || (article?.ok ? article.title : ''),
+        // A feed's title is its own headline; a listing link may be a whole card
+        title:
+          settings.kind === 'listing'
+            ? listingItemTitle(entry.title, article?.ok ? article.title : '')
+            : entry.title || (article?.ok ? article.title : ''),
         publishedAt: entry.publishedAt,
         baseline: entry.baseline,
         content: keys,

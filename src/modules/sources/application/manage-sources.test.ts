@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  DuplicateSourceError,
-  InvalidSourceError,
-  SourceKindNotSupportedError,
-  SourceNotFoundError,
-} from '../domain/errors.ts';
+import { DuplicateSourceError, InvalidSourceError, SourceNotFoundError } from '../domain/errors.ts';
 import { ArchiveSource } from './archive-source.ts';
 import { CreateSource, type CreateSourceCommand } from './create-source.ts';
 import { GetSource } from './get-source.ts';
@@ -48,9 +43,11 @@ describe('managing sources', () => {
     );
   });
 
-  it('rejects fetch modes this version cannot collect yet', async () => {
-    await expect(create({ fetchMode: 'browser' })).rejects.toThrow(SourceKindNotSupportedError);
-    expect(repository.rows.size).toBe(0);
+  it('creates browser sources with the element to wait for', async () => {
+    expect(await create({ fetchMode: 'browser', waitForSelector: '.news' })).toMatchObject({
+      fetchMode: 'browser',
+      waitForSelector: '.news',
+    });
   });
 
   it('creates listing and page sources; a listing needs a selector or a pattern', async () => {

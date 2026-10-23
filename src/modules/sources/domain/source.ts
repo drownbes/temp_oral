@@ -80,6 +80,11 @@ export interface SourceSnapshot {
   readonly name: string;
   readonly url: string;
   readonly fetchMode: FetchMode;
+  /**
+   * Browser sources only: the page is read once an element matches this CSS selector,
+   * otherwise once the network is idle. Always null for HTTP sources.
+   */
+  readonly waitForSelector: string | null;
   readonly settings: SourceSettings;
   readonly enabled: boolean;
   readonly validators: FetchValidators;
@@ -99,6 +104,7 @@ export interface CreateSourceProps {
   readonly name: string;
   readonly url: string;
   readonly fetchMode: FetchMode;
+  readonly waitForSelector?: string | null;
   readonly settings: SourceSettings;
   readonly now: Date;
 }
@@ -107,6 +113,8 @@ export interface SourceChanges {
   readonly name?: string;
   readonly url?: string;
   readonly fetchMode?: FetchMode;
+  /** null clears it; omitted keeps it (as long as the source stays a browser source). */
+  readonly waitForSelector?: string | null;
   readonly settings?: SourceSettings;
   readonly enabled?: boolean;
 }
@@ -134,6 +142,14 @@ function validFetchMode(fetchMode: FetchMode): FetchMode {
   return fetchMode;
 }
 
+/** Waiting only means something in a browser, so HTTP sources never keep a selector. */
+function validWaitForSelector(fetchMode: FetchMode, selector: string | null): string | null {
+  const trimmed = selector?.trim() || null;
+  if (fetchMode !== 'browser' || !trimmed) return null;
+  if (trimmed.length > 500) throw new InvalidSourceError('waitForSelector is too long');
+  return trimmed;
+}
+
 /** Aggregate root: a website we track, and the state of collecting it. */
 export class Source {
   #state: SourceSnapshot;
@@ -144,12 +160,14 @@ export class Source {
 
   static create(props: CreateSourceProps): Source {
     if (!props.ownerId.trim()) throw new InvalidSourceError('ownerId is required');
+    const fetchMode = validFetchMode(props.fetchMode);
     return new Source({
       id: props.id,
       ownerId: props.ownerId,
       name: validName(props.name),
       url: validUrl(props.url),
-      fetchMode: validFetchMode(props.fetchMode),
+      fetchMode,
+      waitForSelector: validWaitForSelector(fetchMode, props.waitForSelector ?? null),
       settings: props.settings,
       enabled: true,
       validators: NO_VALIDATORS,
@@ -180,6 +198,10 @@ export class Source {
     return this.#state.settings.kind;
   }
 
+  get fetchMode(): FetchMode {
+    return this.#state.fetchMode;
+  }
+
   get isArchived(): boolean {
     return this.#state.archivedAt !== null;
   }
@@ -202,12 +224,19 @@ export class Source {
     const url = changes.url === undefined ? s.url : validUrl(changes.url);
     const settings = changes.settings ?? s.settings;
     const restarts = url !== s.url || settings.kind !== s.settings.kind;
+    const fetchMode =
+      changes.fetchMode === undefined ? s.fetchMode : validFetchMode(changes.fetchMode);
+    const waitForSelector = validWaitForSelector(
+      fetchMode,
+      changes.waitForSelector === undefined ? s.waitForSelector : changes.waitForSelector,
+    );
 
     this.#state = {
       ...s,
       name: changes.name === undefined ? s.name : validName(changes.name),
       url,
-      fetchMode: changes.fetchMode === undefined ? s.fetchMode : validFetchMode(changes.fetchMode),
+      fetchMode,
+      waitForSelector,
       settings,
       enabled: changes.enabled ?? s.enabled,
       ...(restarts ? { validators: NO_VALIDATORS, baselinedAt: null } : {}),

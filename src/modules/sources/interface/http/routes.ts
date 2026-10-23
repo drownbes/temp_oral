@@ -33,6 +33,7 @@ const CreateSourceBody = z.object({
   url: z.string(),
   kind: z.enum(SOURCE_KINDS).default('feed'),
   fetchMode: z.enum(FETCH_MODES).default('http'),
+  waitForSelector: z.string().nullable().optional(),
   ...settingsFields,
 });
 const UpdateSourceBody = z.object({
@@ -40,6 +41,7 @@ const UpdateSourceBody = z.object({
   url: z.string().optional(),
   kind: z.enum(SOURCE_KINDS).optional(),
   fetchMode: z.enum(FETCH_MODES).optional(),
+  waitForSelector: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
   ...settingsFields,
 });
@@ -54,6 +56,7 @@ const toSourceDto = (s: SourceSnapshot) => ({
   url: s.url,
   ...s.settings,
   fetchMode: s.fetchMode,
+  waitForSelector: s.waitForSelector,
   enabled: s.enabled,
   lastCollectedAt: iso(s.lastCollectedAt),
   consecutiveFailures: s.consecutiveFailures,

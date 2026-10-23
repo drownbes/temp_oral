@@ -84,6 +84,21 @@ describe('listing pages and watched pages', () => {
       });
     });
 
+    it('titles a post by its headline when the link is a whole card', async () => {
+      const source = await create(LISTING, 'listing', { urlPattern: '/posts/\\d+/' });
+      const card = (n: string) =>
+        `<a href="/posts/${n}/">Teaser of post ${n}.Kernel ${n} is outPatch notes · 2h ago</a>`;
+      servePage(fetcher, LISTING, card('1'));
+      await collect(source.id, '2026-10-21');
+
+      servePage(fetcher, LISTING, card('2') + card('1'));
+      serveArticle(fetcher, `${LISTING}2/`, 'The second post.', 'Blog - Kernel 2 is out - Example');
+      await collect(source.id, '2026-10-22');
+
+      const [line] = await exported('2026-10-22');
+      expect(line?.item.title).toBe('Kernel 2 is out');
+    });
+
     it('does not store a post whose article failed, so the next run tries again', async () => {
       const source = await create(LISTING, 'listing', { linkSelector: 'post' });
       servePage(fetcher, LISTING, listingPage());

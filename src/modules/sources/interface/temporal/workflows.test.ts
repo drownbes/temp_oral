@@ -4,11 +4,16 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { DefaultLogger, Runtime, Worker } from '@temporalio/worker';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { CollectSourceResult } from '../../application/collect-source.ts';
+import type { SourcePreview } from '../../application/preview-source.ts';
 import { SOURCES_TASK_QUEUE } from '../../contracts/index.ts';
-import type { SourceId } from '../../domain/source.ts';
-import type { SourceActivities } from './activities.ts';
-import { COLLECT_CONCURRENCY } from './definitions.ts';
-import { collectSourcesWorkflow } from './workflows.ts';
+import type { FetchMode, SourceId } from '../../domain/source.ts';
+import type { BrowserActivities, SourceActivities } from './activities.ts';
+import {
+  COLLECT_CONCURRENCY,
+  type CollectSourcesRunInput,
+  SOURCES_BROWSER_TASK_QUEUE,
+} from './definitions.ts';
+import { collectSourcesWorkflow, previewSourceWorkflow } from './workflows.ts';
 
 const collected = (sourceId: string): CollectSourceResult => ({
   sourceId: sourceId as SourceId,
@@ -18,6 +23,19 @@ const collected = (sourceId: string): CollectSourceResult => ({
   articlesFetched: 0,
   articleFailures: 0,
 });
+
+const listed = (ids: string[], fetchMode: FetchMode = 'http') =>
+  ids.map((id) => ({ sourceId: id as SourceId, fetchMode }));
+
+const preview: SourcePreview = {
+  url: 'https://example.com/news',
+  entryCount: 1,
+  entries: [{ url: 'https://example.com/news/1', title: 'One', publishedAt: null, excerpt: '' }],
+  articleSample: null,
+  pageSample: null,
+};
+
+const workflowsPath = fileURLToPath(new URL('./workflows.ts', import.meta.url));
 
 describe('collectSourcesWorkflow', () => {
   let env: TestWorkflowEnvironment;
@@ -37,9 +55,14 @@ describe('collectSourcesWorkflow', () => {
 
   /** Fake activities that record calls; override the ones a test cares about. */
   function activities(overrides: Partial<SourceActivities> = {}) {
-    const calls = { collected: [] as string[], failures: [] as [string, string][], exports: 0 };
+    const calls = {
+      collected: [] as string[],
+      browserCollected: [] as string[],
+      failures: [] as [string, string][],
+      exports: 0,
+    };
     const fakes: SourceActivities = {
-      listCollectableSources: async () => ['s1', 's2'],
+      listCollectableSources: async () => listed(['s1', 's2']),
       collectSource: async (sourceId) => {
         calls.collected.push(sourceId);
         return collected(sourceId);
@@ -53,23 +76,39 @@ describe('collectSourcesWorkflow', () => {
       },
       ...overrides,
     };
-    return { fakes, calls };
+    const browserFakes: BrowserActivities = {
+      collectSource: async (sourceId) => {
+        calls.browserCollected.push(sourceId);
+        return collected(sourceId);
+      },
+      previewSource: async () => preview,
+    };
+    return { fakes, browserFakes, calls };
   }
 
-  async function run(fakes: SourceActivities, runId = '2026-10-21') {
+  /** Runs the workflow; with `browser`, a browser worker serves the browser queue too. */
+  async function run(
+    fakes: SourceActivities,
+    options: { browser?: BrowserActivities; input?: Partial<CollectSourcesRunInput> } = {},
+  ) {
     const worker = await Worker.create({
       connection: env.nativeConnection,
       taskQueue: SOURCES_TASK_QUEUE,
-      workflowsPath: fileURLToPath(new URL('./workflows.ts', import.meta.url)),
+      workflowsPath,
       activities: fakes,
     });
-    return worker.runUntil(
-      env.client.workflow.execute(collectSourcesWorkflow, {
-        taskQueue: SOURCES_TASK_QUEUE,
-        workflowId: `test-${crypto.randomUUID()}`,
-        args: [{ runId }],
-      }),
-    );
+    const execution = env.client.workflow.execute(collectSourcesWorkflow, {
+      taskQueue: SOURCES_TASK_QUEUE,
+      workflowId: `test-${crypto.randomUUID()}`,
+      args: [{ runId: '2026-10-21', ...options.input }],
+    });
+    if (!options.browser) return worker.runUntil(execution);
+    const browserWorker = await Worker.create({
+      connection: env.nativeConnection,
+      taskQueue: SOURCES_BROWSER_TASK_QUEUE,
+      activities: options.browser,
+    });
+    return worker.runUntil(browserWorker.runUntil(execution));
   }
 
   it('collects every source, then exports the run once', async () => {
@@ -104,7 +143,7 @@ describe('collectSourcesWorkflow', () => {
     let inFlight = 0;
     let peak = 0;
     const { fakes, calls } = activities({
-      listCollectableSources: async () => Array.from({ length: 10 }, (_, i) => `s${i}`),
+      listCollectableSources: async () => listed(Array.from({ length: 10 }, (_, i) => `s${i}`)),
       collectSource: async (sourceId) => {
         peak = Math.max(peak, ++inFlight);
         await new Promise((resolve) => setTimeout(resolve, 30));
@@ -127,8 +166,81 @@ describe('collectSourcesWorkflow', () => {
       },
     });
 
-    await expect(run(fakes, 'yesterday')).rejects.toThrow('Workflow execution failed');
+    await expect(run(fakes, { input: { runId: 'yesterday' } })).rejects.toThrow(
+      'Workflow execution failed',
+    );
     expect(calls.collected).toEqual([]);
     expect(calls.exports).toBe(0);
+  });
+
+  it('collects browser sources on the browser queue', async () => {
+    const { fakes, browserFakes, calls } = activities({
+      listCollectableSources: async () => [...listed(['s1']), ...listed(['spa'], 'browser')],
+    });
+
+    const result = await run(fakes, { browser: browserFakes });
+    expect(result.failedSources).toEqual([]);
+    expect(calls.collected).toEqual(['s1']);
+    expect(calls.browserCollected).toEqual(['spa']);
+  });
+
+  it('reports browser sources as failed when no browser worker runs', async () => {
+    const { fakes, calls } = activities({
+      listCollectableSources: async () => [...listed(['s1']), ...listed(['spa'], 'browser')],
+    });
+
+    const result = await run(fakes, { input: { browserPickupTimeout: '1 second' } });
+    expect(result.failedSources).toEqual([
+      { sourceId: 'spa', reason: expect.stringContaining('no browser worker') },
+    ]);
+    expect(calls.collected).toEqual(['s1']);
+    expect(calls.failures.map(([id]) => id)).toEqual(['spa']);
+    expect(calls.exports).toBe(1);
+  });
+
+  describe('previewSourceWorkflow', () => {
+    async function runPreview(browser: BrowserActivities) {
+      const { fakes } = activities();
+      const worker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: SOURCES_TASK_QUEUE,
+        workflowsPath,
+        activities: fakes,
+      });
+      const browserWorker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: SOURCES_BROWSER_TASK_QUEUE,
+        activities: browser,
+      });
+      const execution = env.client.workflow.execute(previewSourceWorkflow, {
+        taskQueue: SOURCES_TASK_QUEUE,
+        workflowId: `test-${crypto.randomUUID()}`,
+        args: [{ url: 'https://example.com/news', kind: 'listing', fetchMode: 'browser' }],
+      });
+      return worker.runUntil(browserWorker.runUntil(execution));
+    }
+
+    it('returns the preview made by the browser worker', async () => {
+      const { browserFakes } = activities();
+      expect(await runPreview(browserFakes)).toEqual(preview);
+    });
+
+    it('fails with the activity error type, without retrying', async () => {
+      let attempts = 0;
+      const { browserFakes } = activities();
+      const failing: BrowserActivities = {
+        ...browserFakes,
+        previewSource: async () => {
+          attempts++;
+          throw ApplicationFailure.nonRetryable('HTTP 404 from x', 'SOURCE_FETCH_FAILED');
+        },
+      };
+
+      const error = await runPreview(failing).catch((err: unknown) => err);
+      expect(error).toMatchObject({
+        cause: { type: 'SOURCE_FETCH_FAILED', message: 'HTTP 404 from x' },
+      });
+      expect(attempts).toBe(1);
+    });
   });
 });

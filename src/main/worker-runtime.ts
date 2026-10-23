@@ -30,19 +30,30 @@ export async function runWorker(telemetry: Telemetry): Promise<void> {
   lifecycle.onShutdown('temporal-worker-connection', () => connection.close());
 
   const plugin = temporalTracingPlugin(telemetry);
+  // WORKER_TASK_QUEUES lets one deployment serve only some queues (e.g. a browser-only worker)
+  const definitions = modules
+    .flatMap((module) => module.worker?.(deps) ?? [])
+    .filter(
+      ({ taskQueue }) => !config.worker.taskQueues || config.worker.taskQueues.has(taskQueue),
+    );
+  if (definitions.length === 0) {
+    logger.error({ taskQueues: [...(config.worker.taskQueues ?? [])] }, 'no task queues to serve');
+    process.exitCode = 1;
+    await lifecycle.shutdown();
+    return;
+  }
   const workers = await Promise.all(
-    modules.flatMap((module) => {
-      if (!module.worker) return [];
-      const { taskQueue, workflowsPath, activities } = module.worker(deps);
-      return Worker.create({
+    definitions.map(({ taskQueue, workflowsPath, activities, maxConcurrentActivities }) =>
+      Worker.create({
         connection,
         namespace: config.temporal.namespace,
         taskQueue,
         workflowsPath,
         activities,
+        maxConcurrentActivityTaskExecutions: maxConcurrentActivities,
         plugins: [plugin],
-      });
-    }),
+      }),
+    ),
   );
   logger.info({ taskQueues: workers.map((w) => w.options.taskQueue) }, 'workers started');
 

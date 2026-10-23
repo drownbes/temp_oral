@@ -57,6 +57,20 @@ Feeds that only carry teasers get each new article's own page fetched and its te
 (Readability); set `"fetchArticles": false` on a source to keep the feed text. The preview
 shows an `articleSample` so you can check the extraction first.
 
+Sites that only render their content with JavaScript (an empty shell over plain HTTP) take
+`"fetchMode":"browser"`: the page, and for listings each article page, is rendered in headless
+Chromium. By default the page is read once the network goes quiet; `waitForSelector` waits for
+a specific element instead. The preview works the same way (it runs on the browser worker):
+
+```sh
+curl -XPOST localhost:8080/sources/preview -H 'content-type: application/json' \
+  -d '{"url":"https://store.steampowered.com/news/app/1675200","kind":"listing",
+       "fetchMode":"browser","urlPattern":"/news/app/1675200/view/\\d+"}'
+```
+
+Content inside shadow DOM (Lit / web-component apps) is not part of the rendered HTML, so such
+sites come out empty even in the browser.
+
 A source's first collection is mostly a **baseline**: entries from the last 24 hours reach
 the digest, older (or undated) ones are only remembered, so adding a site doesn't flood the
 digest with its archive. Each item is exported by exactly one run; re-running a run id
@@ -121,7 +135,8 @@ Contexts:
   checksum.
 - **notifications** — idempotent notification sending; exposes a contract (task queue,
   workflow name, input/output types) that documents uses to start its workflow as a child.
-- **sources** — the websites the digest tracks (RSS/Atom/RDF/JSON feeds so far). A daily
+- **sources** — the websites the digest tracks (feeds, listing pages, watched pages; over HTTP
+  or rendered in a browser). A daily
   collection run fetches them, stores raw HTML + text under `sources/raw/`, and exports the
   run's new items to `sources/exports/<runId>.jsonl` (see `sources/contracts`). Design and
   roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md).
@@ -176,6 +191,24 @@ Scraping uses `FETCH_TIMEOUT_MS`, `FETCH_MAX_BYTES` and `FETCH_USER_AGENT`. Fetc
 loopback and link-local addresses are refused (SSRF protection, checked on every redirect and
 at connect time); `.env.development` sets `FETCH_ALLOW_PRIVATE_NETWORKS=true` so local test
 servers work. Never enable it in production.
+
+Browser sources run on their own task queue, `sources-browser`, served only by workers with
+`BROWSER_FETCH_ENABLED=true`; only those need Chromium (`BROWSER_EXECUTABLE_PATH`, or
+Playwright's own via `PLAYWRIGHT_BROWSERS_PATH`, which the Nix shell sets). `BROWSER_CONCURRENCY`
+(2) sources are rendered at a time, each page within `BROWSER_TIMEOUT_MS` (30000). Every
+request a page makes goes through the same address guard as plain fetches. Locally one worker
+serves every queue; in production run the browser worker as its own deployment:
+
+```sh
+# main worker: no Chromium needed
+BROWSER_FETCH_ENABLED=false                                     # the default
+# browser worker
+BROWSER_FETCH_ENABLED=true WORKER_TASK_QUEUES=sources-browser
+```
+
+`WORKER_TASK_QUEUES` (comma-separated) limits a worker to some queues; unset, it serves all.
+Without a browser worker, browser sources are reported as failed after 15 minutes and the run
+carries on; a browser preview answers 422 after 20 seconds.
 
 Digests: `LLM_PROVIDER` (`openai` | `stub`), `OPENAI_API_KEY`, `OPENAI_API_MODE` (`batch`, the
 default: Batch API, half price, up to 24h | `direct`: normal API, full price, seconds; use it

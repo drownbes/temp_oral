@@ -59,6 +59,18 @@
               export PC_PORT_NUM=8099
               # Biome from nixpkgs; the npm package ships a binary that will not run on NixOS
               export BIOME_BINARY="${pkgs.biome}/bin/biome"
+            ''
+            # Headless Chromium for browser sources. playwright-core in package.json is pinned to
+            # this playwright-driver's version, since each Playwright release expects its own build.
+            + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+              export PLAYWRIGHT_BROWSERS_PATH="${
+                pkgs.playwright-driver.browsers.override {
+                  withChromium = false;
+                  withFirefox = false;
+                  withWebkit = false;
+                  withFfmpeg = false;
+                }
+              }"
             '';
           };
         }

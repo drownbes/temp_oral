@@ -26,5 +26,13 @@ export async function createModuleDeps(
 
   const openai = createOpenAiClient(config);
 
-  return { config, logger, db, s3, temporal, openai };
+  return {
+    config,
+    logger,
+    db,
+    s3,
+    temporal,
+    openai,
+    onShutdown: (name, close) => lifecycle.onShutdown(name, close),
+  };
 }

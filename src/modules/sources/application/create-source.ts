@@ -18,6 +18,7 @@ export interface CreateSourceCommand extends SourceSettingsInput {
   readonly url: string;
   readonly kind: SourceKind;
   readonly fetchMode: FetchMode;
+  readonly waitForSelector?: string | null;
 }
 
 export interface CreateSourceDeps {
@@ -40,6 +41,7 @@ export class CreateSource {
       name: command.name,
       url: command.url,
       fetchMode: command.fetchMode,
+      waitForSelector: command.waitForSelector,
       settings: sourceSettings(command.kind, command),
       now: clock.now(),
     });

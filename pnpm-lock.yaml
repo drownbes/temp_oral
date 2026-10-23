@@ -95,6 +95,9 @@ importers:
       pino:
         specifier: ^10.4.0
         version: 10.4.0
+      playwright-core:
+        specifier: 1.64.1
+        version: 1.64.1
       undici:
         specifier: ^8.11.2
         version: 8.11.2
@@ -1845,6 +1848,11 @@ packages:
 
   pino@10.4.0:
     resolution: {integrity: sha512-bk1ZMTwG/Vymx+zPoa28MhNzucFvXJWp3csrSuxuHPSMeUettaCoQ5Jvg07mtC4JGNpcfTwz41oVCnNgBK9+vA==}
+    hasBin: true
+
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
     hasBin: true
 
   postcss@8.5.31:
@@ -4033,6 +4041,8 @@ snapshots:
       safe-stable-stringify: 2.5.0
       sonic-boom: 4.2.1
       thread-stream: 4.2.0
+
+  playwright-core@1.64.1: {}
 
   postcss@8.5.31:
     dependencies:

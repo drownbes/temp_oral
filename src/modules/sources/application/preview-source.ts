@@ -19,6 +19,7 @@ export interface PreviewSourceCommand extends SourceSettingsInput {
   readonly url: string;
   readonly kind: SourceKind;
   readonly fetchMode: FetchMode;
+  readonly waitForSelector?: string | null;
 }
 
 export interface PreviewEntry {
@@ -58,12 +59,23 @@ export interface SourcePreview {
   readonly pageSample: PageSample | null;
 }
 
+/**
+ * Port: runs a browser preview where a browser is (the browser worker, in production), so
+ * the process taking the request needs no Chromium. Next to the use case rather than in
+ * ports.ts because it speaks the use case's own command and result types.
+ */
+export interface BrowserPreviewer {
+  preview(command: PreviewSourceCommand): Promise<SourcePreview>;
+}
+
 export interface PreviewSourceDeps {
   readonly fetcher: PageFetcher;
   readonly feedReader: FeedReader;
   readonly linkExtractor: LinkExtractor;
   readonly articleExtractor: ArticleExtractor;
   readonly pageTextExtractor: PageTextExtractor;
+  /** Set where `fetcher` cannot render pages; browser previews are then handed to it. */
+  readonly browserPreviewer?: BrowserPreviewer;
 }
 
 const MAX_ENTRIES = 20;
@@ -84,8 +96,15 @@ export class PreviewSource {
     assertSupported(settings.kind, command.fetchMode);
     const url = canonicalizeUrl(command.url);
     if (!url) throw new InvalidSourceError('url must be an absolute http(s) URL');
+    if (command.fetchMode === 'browser' && this.#deps.browserPreviewer) {
+      return this.#deps.browserPreviewer.preview({ ...command, url });
+    }
 
-    const page = await fetcher.fetch({ url, validators: { etag: null, lastModified: null } });
+    const page = await fetcher.fetch({
+      url,
+      validators: { etag: null, lastModified: null },
+      waitForSelector: command.fetchMode === 'browser' ? command.waitForSelector : null,
+    });
     if (page.status !== 'ok') throw new Error('unconditional fetch returned not-modified');
 
     if (settings.kind === 'page') {

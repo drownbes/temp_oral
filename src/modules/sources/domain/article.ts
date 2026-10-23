@@ -29,6 +29,32 @@ export function prefersArticleText(feedText: string, articleText: string): boole
   return articleText.trim().length > feedText.trim().length;
 }
 
+/** Link text longer than this is a whole card (teaser, date, labels), not a headline. */
+export const MAX_LINK_TITLE_CHARS = 200;
+/** How page titles join the headline with the site's name ("Post - Blog", "Post | Site"). */
+const TITLE_SEPARATOR = /\s+[-|–—·]\s+/;
+
+/**
+ * Title of a listing item. Links are often whole cards ("teaser… Headline · Patch notes ·
+ * 2 hours ago"); when the card contains the article's title, or a part of it without the
+ * site name, that part is the headline. Otherwise the link text, unless it is empty or too
+ * long to be a headline.
+ */
+export function listingItemTitle(linkText: string, articleTitle: string): string {
+  const link = linkText.replace(/\s+/g, ' ').trim();
+  const article = articleTitle.replace(/\s+/g, ' ').trim();
+  if (!article) return link;
+  if (!link) return article;
+
+  const lowerLink = link.toLowerCase();
+  const headline = [article, ...article.split(TITLE_SEPARATOR)]
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3 && lowerLink.includes(part.toLowerCase()))
+    .sort((a, b) => b.length - a.length)[0];
+  if (headline) return headline;
+  return link.length > MAX_LINK_TITLE_CHARS ? article : link;
+}
+
 /**
  * Which links of a listing page are articles: same site as the listing (other sites are
  * ads, social buttons, partners), not the listing itself, and matching `urlPattern` if set.

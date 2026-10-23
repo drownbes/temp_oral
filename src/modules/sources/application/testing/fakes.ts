@@ -123,12 +123,17 @@ export class StubPageFetcher implements PageFetcher {
 }
 
 /** Serves an article page whose body is `<article>text</article>`. */
-export function serveArticle(fetcher: StubPageFetcher, url: string, text: string): void {
+export function serveArticle(
+  fetcher: StubPageFetcher,
+  url: string,
+  text: string,
+  title = '',
+): void {
   fetcher.responses.set(url, {
     status: 'ok',
     url,
     contentType: 'text/html',
-    body: `<html><nav>menu</nav><article>${text}</article></html>`,
+    body: `<html><title>${title}</title><nav>menu</nav><article>${text}</article></html>`,
     validators: { etag: null, lastModified: null },
   });
 }
@@ -137,7 +142,8 @@ export function serveArticle(fetcher: StubPageFetcher, url: string, text: string
 export class FakeArticleExtractor implements ArticleExtractor {
   extract(html: string): ExtractedArticle | undefined {
     const text = /<article>(.*)<\/article>/s.exec(html)?.[1];
-    return text ? { title: '', html: `<article>${text}</article>`, text } : undefined;
+    const title = /<title>(.*)<\/title>/.exec(html)?.[1] ?? '';
+    return text ? { title, html: `<article>${text}</article>`, text } : undefined;
   }
 }
 

@@ -6,6 +6,8 @@ export interface FetchRequest {
   readonly url: string;
   /** Sent as If-None-Match / If-Modified-Since. */
   readonly validators: FetchValidators;
+  /** Browser fetchers: read the page once this CSS selector matches. Others ignore it. */
+  readonly waitForSelector?: string | null;
 }
 
 export type FetchResult =
