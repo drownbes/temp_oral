@@ -13,6 +13,7 @@ import {
   InMemoryItemRepository,
   InMemorySourceRepository,
   mutableClock,
+  PassingSourceChecker,
   StubPageFetcher,
 } from './testing/fakes.ts';
 import { UpdateSource } from './update-source.ts';
@@ -35,13 +36,19 @@ describe('collecting a source and exporting a run', () => {
     contentStore = new InMemoryItemContentStore();
     exporter = new InMemoryItemExporter();
     clock = mutableClock();
-    source = await new CreateSource({ repository: sources, clock }).execute({
-      ownerId: 'default',
-      name: 'Example',
-      url: FEED,
-      kind: 'feed',
-      fetchMode: 'http',
-    });
+    source = await new CreateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      clock,
+    })
+      .execute({
+        ownerId: 'default',
+        name: 'Example',
+        url: FEED,
+        kind: 'feed',
+        fetchMode: 'http',
+      })
+      .then((r) => r.source);
   });
 
   const collect = (runId: string) =>
@@ -154,7 +161,11 @@ describe('collecting a source and exporting a run', () => {
   });
 
   it('skips disabled sources without fetching', async () => {
-    await new UpdateSource({ repository: sources, clock }).execute(source.id, { enabled: false });
+    await new UpdateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      clock,
+    }).execute(source.id, { enabled: false });
     expect(await collect('2026-10-21')).toMatchObject({ status: 'skipped' });
     expect(fetcher.requests).toEqual([]);
   });

@@ -4,6 +4,7 @@ import { PageSnapshot, type PageSnapshotState } from '../../domain/page-watch.ts
 import type { RunId } from '../../domain/run-id.ts';
 import { Source, type SourceId, type SourceSnapshot } from '../../domain/source.ts';
 import type { PageSnapshotRepository, SourceRepository } from '../../domain/source-repository.ts';
+import type { SourceChecker, SourceCheckResult } from '../check-source.ts';
 import type {
   ArticleExtractor,
   CollectionStarter,
@@ -22,6 +23,17 @@ import type {
   PageText,
   PageTextExtractor,
 } from '../ports.ts';
+import type { PreviewSourceCommand } from '../preview-source.ts';
+
+/** Accepts every source without fetching it; records what it was asked to check. */
+export class PassingSourceChecker implements SourceChecker {
+  readonly checked: PreviewSourceCommand[] = [];
+
+  async check(command: PreviewSourceCommand): Promise<SourceCheckResult> {
+    this.checked.push(command);
+    return { warnings: [] };
+  }
+}
 
 /** In-memory adapters for testing use cases without infrastructure. */
 export class InMemorySourceRepository implements SourceRepository {

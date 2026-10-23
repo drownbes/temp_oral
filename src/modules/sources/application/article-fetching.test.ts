@@ -9,6 +9,7 @@ import {
   InMemoryItemRepository,
   InMemorySourceRepository,
   mutableClock,
+  PassingSourceChecker,
   StubPageFetcher,
   serveArticle,
 } from './testing/fakes.ts';
@@ -32,13 +33,19 @@ describe('fetching article pages for teaser feeds', () => {
     fetcher = new StubPageFetcher();
     contentStore = new InMemoryItemContentStore();
     clock = mutableClock();
-    source = await new CreateSource({ repository: sources, clock }).execute({
-      ownerId: 'default',
-      name: 'Example',
-      url: FEED,
-      kind: 'feed',
-      fetchMode: 'http',
-    });
+    source = await new CreateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      clock,
+    })
+      .execute({
+        ownerId: 'default',
+        name: 'Example',
+        url: FEED,
+        kind: 'feed',
+        fetchMode: 'http',
+      })
+      .then((r) => r.source);
     // Baseline with an empty feed, so later entries are new and exportable
     fetcher.serveFeed(FEED, []);
     await collect('2026-10-21');
@@ -88,7 +95,11 @@ describe('fetching article pages for teaser feeds', () => {
     expect(fetcher.requests.map((r) => r.url)).toEqual([FEED]);
     expect(storedText()).toBe(fullText);
 
-    await new UpdateSource({ repository: sources, clock }).execute(source.id, {
+    await new UpdateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      clock,
+    }).execute(source.id, {
       fetchArticles: false,
     });
     fetcher.serveFeed(FEED, [{ url: `${ARTICLE}-2`, title: 'Newer', text: 'teaser' }]);
@@ -96,7 +107,11 @@ describe('fetching article pages for teaser feeds', () => {
     expect(fetcher.requests.map((r) => r.url)).toEqual([FEED, FEED]);
 
     // A new URL starts over with a baseline: nothing exported, so nothing fetched
-    await new UpdateSource({ repository: sources, clock }).execute(source.id, {
+    await new UpdateSource({
+      repository: sources,
+      checker: new PassingSourceChecker(),
+      clock,
+    }).execute(source.id, {
       url: 'https://example.com/other.xml',
       fetchArticles: true,
     });

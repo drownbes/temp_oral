@@ -10,6 +10,7 @@ import {
   sourceSettings,
 } from '../domain/source.ts';
 import type { SourceRepository } from '../domain/source-repository.ts';
+import { previewCommandOf, type SourceChecker } from './check-source.ts';
 import { assertSupported } from './supported-sources.ts';
 
 export interface CreateSourceCommand extends SourceSettingsInput {
@@ -19,13 +20,23 @@ export interface CreateSourceCommand extends SourceSettingsInput {
   readonly kind: SourceKind;
   readonly fetchMode: FetchMode;
   readonly waitForSelector?: string | null;
+  /** Save without trying the source first (e.g. a feed that is empty for now). */
+  readonly skipCheck?: boolean;
 }
 
 export interface CreateSourceDeps {
   readonly repository: SourceRepository;
+  readonly checker: SourceChecker;
   readonly clock: Clock;
 }
 
+/** A saved source, with what its check found that did not stop it. */
+export interface CheckedSource {
+  readonly source: SourceSnapshot;
+  readonly warnings: readonly string[];
+}
+
+/** Adds a source after trying it the way the collector will, so a broken one is refused. */
 export class CreateSource {
   readonly #deps: CreateSourceDeps;
 
@@ -33,8 +44,8 @@ export class CreateSource {
     this.#deps = deps;
   }
 
-  async execute(command: CreateSourceCommand): Promise<SourceSnapshot> {
-    const { repository, clock } = this.#deps;
+  async execute(command: CreateSourceCommand): Promise<CheckedSource> {
+    const { repository, checker, clock } = this.#deps;
     const source = Source.create({
       id: newSourceId(),
       ownerId: command.ownerId,
@@ -50,7 +61,11 @@ export class CreateSource {
     if (await repository.findActiveByUrl(command.ownerId, source.url)) {
       throw new DuplicateSourceError(source.url);
     }
+    const snapshot = source.toSnapshot();
+    const { warnings } = command.skipCheck
+      ? { warnings: [] }
+      : await checker.check(previewCommandOf(snapshot));
     await repository.save(source);
-    return source.toSnapshot();
+    return { source: snapshot, warnings };
   }
 }

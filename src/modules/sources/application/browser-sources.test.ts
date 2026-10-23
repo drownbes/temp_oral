@@ -14,6 +14,7 @@ import {
   InMemoryItemRepository,
   InMemorySourceRepository,
   mutableClock,
+  PassingSourceChecker,
   StubPageFetcher,
   serveArticle,
   servePage,
@@ -47,15 +48,17 @@ describe('browser sources', () => {
 
   const deps = () => collectSourceDeps({ sources, items, fetcher, contentStore, clock });
   const createListing = () =>
-    new CreateSource({ repository: sources, clock }).execute({
-      ownerId: 'default',
-      name: 'SPA news',
-      url: NEWS,
-      kind: 'listing',
-      fetchMode: 'browser',
-      waitForSelector: '.news-list',
-      linkSelector: 'post',
-    });
+    new CreateSource({ repository: sources, checker: new PassingSourceChecker(), clock })
+      .execute({
+        ownerId: 'default',
+        name: 'SPA news',
+        url: NEWS,
+        kind: 'listing',
+        fetchMode: 'browser',
+        waitForSelector: '.news-list',
+        linkSelector: 'post',
+      })
+      .then((r) => r.source);
 
   it('lists each collectable source with its fetch mode', async () => {
     const source = await createListing();

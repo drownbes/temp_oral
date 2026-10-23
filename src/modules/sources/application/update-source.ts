@@ -9,6 +9,8 @@ import {
   sourceSettings,
 } from '../domain/source.ts';
 import type { SourceRepository } from '../domain/source-repository.ts';
+import { previewCommandOf, type SourceChecker } from './check-source.ts';
+import type { CheckedSource } from './create-source.ts';
 import { assertSupported } from './supported-sources.ts';
 
 export interface UpdateSourceCommand extends SourceSettingsInput {
@@ -18,10 +20,13 @@ export interface UpdateSourceCommand extends SourceSettingsInput {
   readonly fetchMode?: FetchMode;
   readonly waitForSelector?: string | null;
   readonly enabled?: boolean;
+  /** Save without trying the source again (see CreateSourceCommand.skipCheck). */
+  readonly skipCheck?: boolean;
 }
 
 export interface UpdateSourceDeps {
   readonly repository: SourceRepository;
+  readonly checker: SourceChecker;
   readonly clock: Clock;
 }
 
@@ -34,8 +39,8 @@ export class UpdateSource {
     this.#deps = deps;
   }
 
-  async execute(id: SourceId, command: UpdateSourceCommand): Promise<SourceSnapshot> {
-    const { repository, clock } = this.#deps;
+  async execute(id: SourceId, command: UpdateSourceCommand): Promise<CheckedSource> {
+    const { repository, checker, clock } = this.#deps;
     const source = await repository.findById(id);
     if (!source || source.isArchived) throw new SourceNotFoundError(id);
 
@@ -69,7 +74,21 @@ export class UpdateSource {
       const other = await repository.findActiveByUrl(updated.ownerId, updated.url);
       if (other && other.id !== id) throw new DuplicateSourceError(updated.url);
     }
+    // Tried again only when how it is read changed, and only if it is going to be collected
+    const { warnings } =
+      updated.enabled && !command.skipCheck && readsDifferently(current, updated)
+        ? await checker.check(previewCommandOf(updated))
+        : { warnings: [] };
     await repository.save(source);
-    return updated;
+    return { source: updated, warnings };
   }
+}
+
+function readsDifferently(before: SourceSnapshot, after: SourceSnapshot): boolean {
+  return (
+    before.url !== after.url ||
+    before.fetchMode !== after.fetchMode ||
+    before.waitForSelector !== after.waitForSelector ||
+    JSON.stringify(before.settings) !== JSON.stringify(after.settings)
+  );
 }

@@ -6,6 +6,7 @@ import type {
 } from '#shared/infrastructure/module.ts';
 import { systemClock } from '#shared/kernel/clock.ts';
 import { ArchiveSource } from './application/archive-source.ts';
+import { CheckSource } from './application/check-source.ts';
 import { CollectSource } from './application/collect-source.ts';
 import { CreateSource } from './application/create-source.ts';
 import { ExportItems } from './application/export-items.ts';
@@ -65,19 +66,22 @@ export const sourcesModule: ModuleDefinition = {
   },
   http(deps) {
     const { sources, items, fetcher, extractors, clock } = adapters(deps);
+    // The API has no browser: browser previews run on the browser worker
+    const preview = new PreviewSource({
+      fetcher,
+      ...extractors,
+      browserPreviewer: new TemporalBrowserPreviewer(deps.temporal),
+    });
+    // New and changed sources are tried with the preview before they are saved
+    const checker = new CheckSource(preview);
     return sourceRoutes({
-      create: new CreateSource({ repository: sources, clock }),
-      update: new UpdateSource({ repository: sources, clock }),
+      create: new CreateSource({ repository: sources, checker, clock }),
+      update: new UpdateSource({ repository: sources, checker, clock }),
       archive: new ArchiveSource({ repository: sources, clock }),
       get: new GetSource(sources),
       list: new ListSources(sources),
       listItems: new ListSourceItems({ sources, items }),
-      // The API has no browser: browser previews run on the browser worker
-      preview: new PreviewSource({
-        fetcher,
-        ...extractors,
-        browserPreviewer: new TemporalBrowserPreviewer(deps.temporal),
-      }),
+      preview,
       startCollection: new StartCollection(new TemporalCollectionStarter(deps.temporal)),
     });
   },

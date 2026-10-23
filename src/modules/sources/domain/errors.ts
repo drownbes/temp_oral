@@ -33,6 +33,11 @@ export class ArchivedSourceError extends ConflictError {
   }
 }
 
+/** Reading the source showed it cannot work as configured: refused, empty, nothing matches. */
+export class UnusableSourceError extends ValidationError {
+  readonly code = 'SOURCE_UNUSABLE';
+}
+
 /** The fetched content is not a feed we can read; retrying will not help. */
 export class InvalidFeedError extends ValidationError {
   readonly code = 'INVALID_FEED';

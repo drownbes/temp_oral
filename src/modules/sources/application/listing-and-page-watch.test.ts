@@ -13,6 +13,7 @@ import {
   InMemoryPageSnapshotRepository,
   InMemorySourceRepository,
   mutableClock,
+  PassingSourceChecker,
   StubPageFetcher,
   serveArticle,
   servePage,
@@ -47,14 +48,16 @@ describe('listing pages and watched pages', () => {
 
   const deps = () => collectSourceDeps({ sources, items, fetcher, contentStore, clock, snapshots });
   const create = (url: string, kind: SourceKind, settings: SourceSettingsInput = {}) =>
-    new CreateSource({ repository: sources, clock }).execute({
-      ownerId: 'default',
-      name: 'Example',
-      url,
-      kind,
-      fetchMode: 'http',
-      ...settings,
-    });
+    new CreateSource({ repository: sources, checker: new PassingSourceChecker(), clock })
+      .execute({
+        ownerId: 'default',
+        name: 'Example',
+        url,
+        kind,
+        fetchMode: 'http',
+        ...settings,
+      })
+      .then((r) => r.source);
   const collect = (sourceId: string, runId: string) =>
     new CollectSource(deps()).execute(sourceId as never, runId);
   const exported = async (runId: string) => {
@@ -166,7 +169,11 @@ describe('listing pages and watched pages', () => {
       await collect(source.id, '2026-10-21');
 
       const other = 'https://other.example.org/';
-      await new UpdateSource({ repository: sources, clock }).execute(source.id as never, {
+      await new UpdateSource({
+        repository: sources,
+        checker: new PassingSourceChecker(),
+        clock,
+      }).execute(source.id as never, {
         url: other,
       });
       servePage(fetcher, other, page(['something else entirely']));

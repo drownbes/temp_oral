@@ -42,6 +42,15 @@ curl 'localhost:8080/sources/<id>/items?limit=20'
 cat .data/s3/app-dev/sources/exports/2026-10-21.jsonl            # the run's export
 ```
 
+A new source is tried the way the collector will read it (the same fetch and extraction as
+the preview) before it is saved, and so is an existing one whose URL, kind, selectors or fetch
+mode change. A source that cannot work is refused with `422 SOURCE_UNUSABLE`: the site refuses
+it (e.g. 403 from bot protection), it is not a feed, or there is nothing to collect (no
+entries, no matching links, no text; for HTTP sources the message suggests
+`"fetchMode":"browser"`). A failure that may be temporary (5xx, timeout, no browser worker) or
+an unreadable first article only adds to the `warnings` in the response. `"skipCheck": true`
+saves without trying, e.g. for a feed that is empty for now.
+
 Besides feeds, a source can be a **listing page** (a blog index without a feed:
 `"kind":"listing"` with a `linkSelector` such as `"article h2"` and/or a `urlPattern`) or a
 **watched page** (`"kind":"page"`, optionally narrowed with a `contentSelector`): each change

@@ -34,6 +34,7 @@ const CreateSourceBody = z.object({
   kind: z.enum(SOURCE_KINDS).default('feed'),
   fetchMode: z.enum(FETCH_MODES).default('http'),
   waitForSelector: z.string().nullable().optional(),
+  skipCheck: z.boolean().optional(),
   ...settingsFields,
 });
 const UpdateSourceBody = z.object({
@@ -43,9 +44,10 @@ const UpdateSourceBody = z.object({
   fetchMode: z.enum(FETCH_MODES).optional(),
   waitForSelector: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
+  skipCheck: z.boolean().optional(),
   ...settingsFields,
 });
-const PreviewSourceBody = CreateSourceBody.omit({ name: true });
+const PreviewSourceBody = CreateSourceBody.omit({ name: true, skipCheck: true });
 const StartCollectionBody = z.object({ runId: z.string() });
 
 const iso = (date: Date | null) => date?.toISOString() ?? null;
@@ -96,11 +98,12 @@ export function sourceRoutes(useCases: {
   return async function sourcesHttp(app) {
     app.post('/sources', async (request, reply) => {
       const body = CreateSourceBody.parse(request.body);
-      const source = await useCases.create.execute({ ...body, ownerId: OWNER_ID });
+      // Tried first: a source that cannot be read is refused (422 SOURCE_UNUSABLE)
+      const { source, warnings } = await useCases.create.execute({ ...body, ownerId: OWNER_ID });
       return reply
         .status(201)
         .header('location', `/sources/${source.id}`)
-        .send(toSourceDto(source));
+        .send({ ...toSourceDto(source), warnings });
     });
 
     app.get('/sources', async () => {
@@ -128,7 +131,8 @@ export function sourceRoutes(useCases: {
     app.patch('/sources/:id', async (request) => {
       const { id } = SourceParams.parse(request.params);
       const body = UpdateSourceBody.parse(request.body);
-      return toSourceDto(await useCases.update.execute(id as SourceId, body));
+      const { source, warnings } = await useCases.update.execute(id as SourceId, body);
+      return { ...toSourceDto(source), warnings };
     });
 
     app.delete('/sources/:id', async (request, reply) => {
