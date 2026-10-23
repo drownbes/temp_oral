@@ -56,7 +56,7 @@ describe('a digest run', () => {
 
   beforeEach(() => {
     digests = new InMemoryDigestRepository();
-    entries = new InMemoryDigestEntryRepository();
+    entries = new InMemoryDigestEntryRepository(digests);
     profiles = new InMemoryInterestProfileRepository();
     reader = new InMemoryExportedItemsReader();
     analyzer = new FakeItemAnalyzer();
@@ -87,6 +87,7 @@ describe('a digest run', () => {
       embedder,
       clock,
       clusterThreshold: 0.9,
+      earlierCoverage: { days: 7, repeat: 0.97, followUp: 0.85 },
     }),
     submitSynthesis: new SubmitSynthesis({ digests, entries, profiles, synthesizer, clock }),
     checkSynthesis: new CheckSynthesis({ digests, synthesizer }),
@@ -289,6 +290,61 @@ describe('a digest run', () => {
 
     expect(await finishDigest(late.id)).toMatchObject({ status: 'superseded' });
     expect(publisher.pages.map((p) => p.runId)).toEqual(['2026-10-22']);
+  });
+
+  it('leaves out stories earlier digests showed and labels follow-ups', async () => {
+    // Day one: a and b are published
+    embedder.vectors.set('a', [1, 0, 0]);
+    embedder.vectors.set('b', [0, 1, 0]);
+    const first = await startDigest('2026-10-21', [item('a'), item('b', '9to5Linux')]);
+    await finishDigest(first.id);
+
+    // Day two: a repost of a, a follow-up to b (cos 0.89), and something new
+    embedder.vectors.set('a-repost', [1, 0, 0]);
+    embedder.vectors.set('b-update', [0, 0.89, 0.456]);
+    embedder.vectors.set('c', [0, 0, 1]);
+    const second = await startDigest('2026-10-22', [
+      item('a-repost', 'LXer'),
+      item('b-update'),
+      item('c', 'Linuxiac'),
+    ]);
+    await finishDigest(second.id);
+
+    const clusters = digests.rows.get(second.id)?.clusters ?? [];
+    expect(clusters.map((c) => [c.id, c.earlier?.kind ?? null])).toEqual([
+      ['a-repost', 'repeat'],
+      ['b-update', 'follow-up'],
+      ['c', null],
+    ]);
+    expect(clusters[1]?.earlier).toMatchObject({
+      runId: '2026-10-21',
+      title: 'Title b',
+      sourceName: '9to5Linux',
+    });
+
+    // The repeat is neither synthesised nor shown, only listed
+    const synthesis = synthesizer.fake.submitted.at(-1);
+    expect(synthesis?.highlights.map((h) => h.title).sort()).toEqual(['Title b-update', 'Title c']);
+    const page = publisher.pages.at(-1);
+    expect(page?.featured.map((st) => st.cluster.id).sort()).toEqual(['b-update', 'c']);
+    expect(page?.repeated.map((st) => st.cluster.id)).toEqual(['a-repost']);
+  });
+
+  it('compares only with published digests of the last days', async () => {
+    embedder.vectors.set('old', [1, 0]);
+    embedder.vectors.set('unshown', [0, 1]);
+    const old = await startDigest('2026-10-10', [item('old')]);
+    await finishDigest(old.id);
+    // Failed before publishing: the reader never saw it
+    const failed = await startDigest('2026-10-20', [item('unshown')]);
+    await new MarkDigestFailed({ digests, clock }).execute(failed.id, 'model not found');
+
+    embedder.vectors.set('old-again', [1, 0]);
+    embedder.vectors.set('unshown-again', [0, 1]);
+    const today = await startDigest('2026-10-21', [item('old-again'), item('unshown-again')]);
+    await finishDigest(today.id);
+
+    expect(digests.rows.get(today.id)?.clusters.map((c) => c.earlier)).toEqual([null, null]);
   });
 
   it('derives the run id from the start time in the digest time zone', async () => {

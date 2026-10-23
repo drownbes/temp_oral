@@ -1,5 +1,6 @@
 import { Digest, type DigestId, type DigestSnapshot } from '../../domain/digest.ts';
 import type { DigestEntry, ItemAnalysis } from '../../domain/digest-entry.ts';
+import type { PublishedEntry } from '../../domain/earlier-coverage.ts';
 import { InterestProfile, type InterestProfileSnapshot } from '../../domain/interest-profile.ts';
 import type {
   DigestEntryRepository,
@@ -61,8 +62,14 @@ export class InMemoryDigestRepository implements DigestRepository {
   }
 }
 
+/** Reads digest statuses from `digests`, like the real one joins the digest table. */
 export class InMemoryDigestEntryRepository implements DigestEntryRepository {
   readonly rows = new Map<string, DigestEntry>();
+  readonly #digests: InMemoryDigestRepository;
+
+  constructor(digests: InMemoryDigestRepository) {
+    this.#digests = digests;
+  }
 
   async saveAll(entries: readonly DigestEntry[]): Promise<void> {
     for (const entry of entries) this.rows.set(`${entry.digestId}/${entry.itemId}`, entry);
@@ -70,6 +77,18 @@ export class InMemoryDigestEntryRepository implements DigestEntryRepository {
 
   async listByDigest(digestId: DigestId): Promise<DigestEntry[]> {
     return [...this.rows.values()].filter((e) => e.digestId === digestId);
+  }
+
+  async listPublished(ownerId: string, from: RunId, before: RunId): Promise<PublishedEntry[]> {
+    return [...this.rows.values()].flatMap((e) => {
+      const digest = this.#digests.rows.get(e.digestId);
+      const shown =
+        digest?.ownerId === ownerId &&
+        digest.status === 'published' &&
+        digest.runId >= from &&
+        digest.runId < before;
+      return shown && e.embedding ? [{ ...e, runId: digest.runId, embedding: e.embedding }] : [];
+    });
   }
 }
 
@@ -184,7 +203,16 @@ class FakeBatches<R> {
  */
 export class FakeItemEmbedder implements ItemEmbedder {
   readonly fake = new FakeBatches<EmbeddingRequest>();
+  /** Set a vector to make items similar; others get one unlike any other item's. */
   readonly vectors = new Map<string, number[]>();
+  readonly #dimensions = new Map<string, number>();
+
+  /** One-hot in a dimension of its own, across all batches (so across days too). */
+  #unique(itemId: string): number[] {
+    if (!this.#dimensions.has(itemId)) this.#dimensions.set(itemId, this.#dimensions.size);
+    const index = this.#dimensions.get(itemId) ?? 0;
+    return Array.from({ length: UNIQUE_DIMENSIONS }, (_, i) => (i === index ? 1 : 0));
+  }
 
   async submit(request: EmbeddingRequest): Promise<string> {
     return this.fake.submit(request.key, request);
@@ -197,13 +225,15 @@ export class FakeItemEmbedder implements ItemEmbedder {
   async results(ref: string): Promise<EmbeddingResults> {
     const { request } = this.fake.get(ref);
     const embeddings = new Map<string, readonly number[]>();
-    request.items.forEach((item, i) => {
-      const unique = Array.from({ length: request.items.length }, (_, j) => (i === j ? 1 : 0));
-      embeddings.set(item.itemId, this.vectors.get(item.itemId) ?? unique);
-    });
+    for (const item of request.items) {
+      embeddings.set(item.itemId, this.vectors.get(item.itemId) ?? this.#unique(item.itemId));
+    }
     return { embeddings, usage: { inputTokens: 5 * request.items.length, outputTokens: 0 } };
   }
 }
+
+/** Room for that many distinct items per test. */
+const UNIQUE_DIMENSIONS = 256;
 
 /** Merged headline "Merged: <first title>", overview listing the highlight titles. */
 export class FakeDigestSynthesizer implements DigestSynthesizer {

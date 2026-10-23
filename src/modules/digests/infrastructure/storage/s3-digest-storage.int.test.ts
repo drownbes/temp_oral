@@ -55,6 +55,7 @@ describe('digests S3 adapters', () => {
       overview: null,
       featured: [],
       alsoNoted: [],
+      repeated: [],
       failedSources: [],
       itemCount: 0,
       analyzedCount: 0,

@@ -47,6 +47,26 @@ describe('rankStories', () => {
     expect(ids(result.alsoNoted)).toEqual(['failed', 'low']);
   });
 
+  it('keeps repeats of earlier digests out of the page; follow-ups rank as usual', () => {
+    const entries = [entry('repeat', 0.9), entry('follow-up', 0.8), entry('new', 0.7)];
+    const earlier = (kind: 'repeat' | 'follow-up') => ({
+      kind,
+      runId: '2026-10-20',
+      sourceName: 'x',
+      title: 't',
+      url: 'https://example.com/t',
+      similarity: 1,
+    });
+    const clusters = singleStories(entries).map((c) =>
+      c.id === 'new' ? c : { ...c, earlier: earlier(c.id as 'repeat' | 'follow-up') },
+    );
+    const result = rankStories(toStories(clusters, entries), 0.5);
+
+    expect(ids(result.featured)).toEqual(['follow-up', 'new']);
+    expect(ids(result.alsoNoted)).toEqual([]);
+    expect(ids(result.repeated)).toEqual(['repeat']);
+  });
+
   it('caps the featured list and moves the overflow to "also noted"', () => {
     const many = Array.from({ length: MAX_FEATURED + 2 }, (_, i) => entry(`e${i}`, 0.9));
     const result = ranked(many, 0.5);
@@ -58,8 +78,8 @@ describe('rankStories', () => {
     const entries = [entry('a', 0.3), entry('b', 0.8), entry('c', 0.6)];
     const stories = toStories(
       [
-        { id: 'a', itemIds: ['a', 'b'], headline: null, summary: null },
-        { id: 'c', itemIds: ['c'], headline: null, summary: null },
+        { id: 'a', itemIds: ['a', 'b'], headline: null, summary: null, earlier: null },
+        { id: 'c', itemIds: ['c'], headline: null, summary: null, earlier: null },
       ],
       entries,
     );
@@ -89,6 +109,7 @@ describe('clusterEntries', () => {
       itemIds: ['plasma-phoronix', 'plasma-9to5'],
       headline: null,
       summary: null,
+      earlier: null,
     });
   });
 

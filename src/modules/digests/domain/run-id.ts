@@ -18,6 +18,13 @@ export function parseRunId(value: string): RunId {
   return value as RunId;
 }
 
+/** The run `days` calendar days before `runId`. */
+export function daysBefore(runId: RunId, days: number): RunId {
+  const date = new Date(`${runId}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return parseRunId(date.toISOString().slice(0, 10));
+}
+
 /** The calendar date of `instant` in `timeZone`, so a 06:00 Europe/Berlin run is "today" there. */
 export function runIdAt(instant: Date, timeZone: string): RunId {
   // en-CA formats dates as YYYY-MM-DD

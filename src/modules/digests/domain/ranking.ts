@@ -15,7 +15,12 @@ export interface RankedStories {
   readonly featured: readonly Story[];
   /** Everything else, newest first: shown as headlines only. */
   readonly alsoNoted: readonly Story[];
+  /** Near-copies of what earlier digests showed: not shown, only listed, newest first. */
+  readonly repeated: readonly Story[];
 }
+
+export const isRepeat = (story: { readonly cluster: StoryCluster }) =>
+  story.cluster.earlier?.kind === 'repeat';
 
 /** Keeps the page readable on busy days; the rest still appears as headlines. */
 export const MAX_FEATURED = 25;
@@ -28,7 +33,13 @@ const newestFirst = (a: Story, b: Story) =>
 
 /** Each entry as its own story: for digests without clusters (nothing to group). */
 export function singleStories(entries: readonly DigestEntry[]): StoryCluster[] {
-  return entries.map((e) => ({ id: e.itemId, itemIds: [e.itemId], headline: null, summary: null }));
+  return entries.map((e) => ({
+    id: e.itemId,
+    itemIds: [e.itemId],
+    headline: null,
+    summary: null,
+    earlier: null,
+  }));
 }
 
 export function toStories(
@@ -48,13 +59,15 @@ export function toStories(
 }
 
 export function rankStories(stories: readonly Story[], threshold: number): RankedStories {
-  const relevant = stories
+  const fresh = stories.filter((s) => !isRepeat(s));
+  const relevant = fresh
     .filter((s) => s.relevance >= threshold)
     .sort((a, b) => b.relevance - a.relevance || newestFirst(a, b));
   const featured = relevant.slice(0, MAX_FEATURED);
   const featuredIds = new Set(featured.map((s) => s.cluster.id));
   return {
     featured,
-    alsoNoted: stories.filter((s) => !featuredIds.has(s.cluster.id)).sort(newestFirst),
+    alsoNoted: fresh.filter((s) => !featuredIds.has(s.cluster.id)).sort(newestFirst),
+    repeated: stories.filter(isRepeat).sort(newestFirst),
   };
 }

@@ -99,7 +99,8 @@ function toDomain(row: Selectable<DigestTable>): Digest {
     analysisBatchRef: row.analysis_batch_ref,
     embeddingBatchRef: row.embedding_batch_ref,
     synthesisBatchRef: row.synthesis_batch_ref,
-    clusters: row.clusters,
+    // Stories stored before earlier-coverage existed have no `earlier`
+    clusters: row.clusters.map((cluster) => ({ ...cluster, earlier: cluster.earlier ?? null })),
     overview: row.overview,
     analyzedCount: row.analyzed_count,
     failedItemCount: row.failed_item_count,

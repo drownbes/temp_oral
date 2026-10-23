@@ -111,6 +111,8 @@ export interface DigestPage {
   readonly overview: string | null;
   readonly featured: readonly Story[];
   readonly alsoNoted: readonly Story[];
+  /** Already shown by earlier digests: listed in the footer, not repeated. */
+  readonly repeated: readonly Story[];
   readonly failedSources: readonly FailedSource[];
   readonly itemCount: number;
   readonly analyzedCount: number;

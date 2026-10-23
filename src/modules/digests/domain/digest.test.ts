@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Digest, type DigestId } from './digest.ts';
 import { InvalidDigestStateError, InvalidRunIdError } from './errors.ts';
-import { parseRunId, runIdAt } from './run-id.ts';
+import { daysBefore, parseRunId, runIdAt } from './run-id.ts';
 
 const now = new Date('2026-10-21T06:00:00Z');
 const begin = () =>
@@ -13,7 +13,13 @@ const collection = (itemCount: number) => ({
 });
 const refs = { analysisBatchRef: 'batch_a', embeddingBatchRef: 'batch_e' };
 const usage = { inputTokens: 1000, outputTokens: 200 };
-const cluster = { id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null };
+const cluster = {
+  id: 'i-1',
+  itemIds: ['i-1', 'i-2'],
+  headline: null,
+  summary: null,
+  earlier: null,
+};
 const enrichment = { analyzedCount: 2, failedItemCount: 1, clusters: [cluster], usage };
 
 describe('Digest', () => {
@@ -126,6 +132,13 @@ describe('run ids', () => {
     expect(runIdAt(instant, 'UTC')).toBe('2026-10-21');
     expect(runIdAt(instant, 'Europe/Berlin')).toBe('2026-10-22');
     expect(runIdAt(instant, 'America/Los_Angeles')).toBe('2026-10-21');
+  });
+
+  it('counts days back across month and year ends', () => {
+    expect(daysBefore(parseRunId('2026-10-23'), 7)).toBe('2026-10-16');
+    expect(daysBefore(parseRunId('2026-03-02'), 2)).toBe('2026-02-28');
+    expect(daysBefore(parseRunId('2027-01-01'), 1)).toBe('2026-12-31');
+    expect(daysBefore(parseRunId('2026-10-23'), 0)).toBe('2026-10-23');
   });
 
   it.each(['2026-02-30', '21.10.2026', ''])('rejects %s', (value) => {

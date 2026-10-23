@@ -53,7 +53,9 @@ describe('digests repositories', () => {
       {
         analyzedCount: 1,
         failedItemCount: 1,
-        clusters: [{ id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null }],
+        clusters: [
+          { id: 'i-1', itemIds: ['i-1', 'i-2'], headline: null, summary: null, earlier: null },
+        ],
         usage: { inputTokens: 500, outputTokens: 80 },
       },
       now,
@@ -114,6 +116,48 @@ describe('digests repositories', () => {
     expect(await entries.listByDigest(d.id)).toEqual([
       analysed,
       { ...base, itemId: 'item-2', publishedAt: null },
+    ]);
+  });
+
+  it('lists the embedded entries of published digests in a run range', async () => {
+    const owner = `test-${crypto.randomUUID()}`;
+    const withEntry = async (runId: string, publish: boolean, embedding: number[] | null) => {
+      const d = Digest.begin({ id: newDigestId(), ownerId: owner, runId: parseRunId(runId), now });
+      d.recordCollection({ exportKey: 'k', itemCount: 0, failedSources: [] }, now);
+      if (publish) d.publish(now);
+      await digests.save(d);
+      await entries.saveAll([
+        {
+          digestId: d.id,
+          itemId: `item-${runId}`,
+          sourceId: 's-1',
+          sourceName: 'LXer',
+          url: `https://example.com/${runId}`,
+          title: `Story of ${runId}`,
+          publishedAt: now,
+          analysis: null,
+          failure: null,
+          embedding,
+        },
+      ]);
+    };
+    await withEntry('2026-10-14', true, [1, 0]); // before the range
+    await withEntry('2026-10-16', true, [0, 1]);
+    await withEntry('2026-10-20', true, null); // no embedding
+    await withEntry('2026-10-21', false, [1, 1]); // not published
+    await withEntry('2026-10-22', true, [1, 0]); // the run itself: excluded
+
+    expect(
+      await entries.listPublished(owner, parseRunId('2026-10-15'), parseRunId('2026-10-22')),
+    ).toEqual([
+      {
+        runId: '2026-10-16',
+        itemId: 'item-2026-10-16',
+        sourceName: 'LXer',
+        url: 'https://example.com/2026-10-16',
+        title: 'Story of 2026-10-16',
+        embedding: [0, 1],
+      },
     ]);
   });
 

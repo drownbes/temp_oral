@@ -1,5 +1,6 @@
 import type { Digest, DigestId } from './digest.ts';
 import type { DigestEntry } from './digest-entry.ts';
+import type { PublishedEntry } from './earlier-coverage.ts';
 import type { InterestProfile } from './interest-profile.ts';
 import type { RunId } from './run-id.ts';
 
@@ -18,6 +19,11 @@ export interface DigestRepository {
 export interface DigestEntryRepository {
   saveAll(entries: readonly DigestEntry[]): Promise<void>;
   listByDigest(digestId: DigestId): Promise<DigestEntry[]>;
+  /**
+   * Embedded entries of the owner's published digests with `from <= runId < before`: what
+   * the reader has already been shown. Superseded and failed digests were never shown.
+   */
+  listPublished(ownerId: string, from: RunId, before: RunId): Promise<PublishedEntry[]>;
 }
 
 /** Port: one interest profile per owner. */

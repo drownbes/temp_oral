@@ -2,7 +2,7 @@ import type { Clock } from '#shared/kernel/clock.ts';
 import type { DigestId } from '../domain/digest.ts';
 import { DigestNotFoundError } from '../domain/errors.ts';
 import { DEFAULT_RELEVANCE_THRESHOLD } from '../domain/interest-profile.ts';
-import { rankStories } from '../domain/ranking.ts';
+import { isRepeat, rankStories } from '../domain/ranking.ts';
 import type {
   DigestEntryRepository,
   DigestRepository,
@@ -44,7 +44,10 @@ export class SubmitSynthesis {
     if (snapshot.status !== 'synthesizing' || snapshot.synthesisBatchRef) return toState(digest);
 
     const profile = (await profiles.find(snapshot.ownerId))?.toSnapshot();
-    const stories = storiesOf(snapshot, await entries.listByDigest(digestId));
+    // Repeats are not shown, so they get neither a merged headline nor a place in the overview
+    const stories = storiesOf(snapshot, await entries.listByDigest(digestId)).filter(
+      (s) => !isRepeat(s),
+    );
     const ranked = rankStories(stories, profile?.relevanceThreshold ?? DEFAULT_RELEVANCE_THRESHOLD);
     // Quiet day with nothing above the threshold: write the overview from what there is
     const highlights = (ranked.featured.length > 0 ? ranked.featured : stories)

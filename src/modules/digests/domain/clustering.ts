@@ -61,6 +61,7 @@ export function clusterEntries(entries: readonly DigestEntry[], threshold: numbe
       itemIds: members.map((m) => m.itemId),
       headline: null,
       summary: null,
+      earlier: null,
     });
   }
   return clusters;

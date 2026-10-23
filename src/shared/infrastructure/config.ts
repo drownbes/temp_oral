@@ -80,8 +80,22 @@ const EnvSchema = z
     DIGEST_MAX_ITEM_CHARS: z.coerce.number().int().positive().default(16_000),
     // Cosine similarity at which two items count as the same story (embedding-model specific)
     DIGEST_CLUSTER_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75),
+    // Stories already shown by the digests of the last DIGEST_HISTORY_DAYS days: near-copies
+    // (>= DIGEST_REPEAT_THRESHOLD) are left out, similar ones (>= DIGEST_FOLLOW_UP_THRESHOLD)
+    // are labelled as follow-ups. Same-day grouping is looser: across days, related stories
+    // (daily series, two changes to one subsystem) embed closer than within a day.
+    DIGEST_HISTORY_DAYS: z.coerce.number().int().min(0).max(60).default(7),
+    DIGEST_REPEAT_THRESHOLD: z.coerce.number().min(0).max(1).default(0.97),
+    DIGEST_FOLLOW_UP_THRESHOLD: z.coerce.number().min(0).max(1).default(0.85),
   })
   .superRefine((env, ctx) => {
+    if (env.DIGEST_FOLLOW_UP_THRESHOLD > env.DIGEST_REPEAT_THRESHOLD) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['DIGEST_FOLLOW_UP_THRESHOLD'],
+        message: 'must not be above DIGEST_REPEAT_THRESHOLD',
+      });
+    }
     if (env.LLM_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
       ctx.addIssue({
         code: 'custom',
@@ -160,6 +174,11 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       publishKey: env.DIGEST_PUBLISH_KEY,
       maxItemChars: env.DIGEST_MAX_ITEM_CHARS,
       clusterThreshold: env.DIGEST_CLUSTER_THRESHOLD,
+      earlierCoverage: {
+        days: env.DIGEST_HISTORY_DAYS,
+        repeat: env.DIGEST_REPEAT_THRESHOLD,
+        followUp: env.DIGEST_FOLLOW_UP_THRESHOLD,
+      },
     },
   } as const;
 }

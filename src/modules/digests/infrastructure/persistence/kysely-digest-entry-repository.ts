@@ -1,7 +1,9 @@
 import type { Kysely, Selectable } from 'kysely';
 import type { DigestId } from '../../domain/digest.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
+import type { PublishedEntry } from '../../domain/earlier-coverage.ts';
 import type { DigestEntryRepository } from '../../domain/repositories.ts';
+import type { RunId } from '../../domain/run-id.ts';
 import type { DigestEntryTable, DigestsTables } from './tables.ts';
 
 export class KyselyDigestEntryRepository implements DigestEntryRepository {
@@ -41,6 +43,29 @@ export class KyselyDigestEntryRepository implements DigestEntryRepository {
       .orderBy('item_id')
       .execute();
     return rows.map(toDomain);
+  }
+
+  async listPublished(ownerId: string, from: RunId, before: RunId): Promise<PublishedEntry[]> {
+    const rows = await this.#db
+      .selectFrom('digests.digest_entry as e')
+      .innerJoin('digests.digest as d', 'd.id', 'e.digest_id')
+      .select(['d.run_id', 'e.item_id', 'e.source_name', 'e.url', 'e.title', 'e.embedding'])
+      .where('d.owner_id', '=', ownerId)
+      .where('d.status', '=', 'published')
+      .where('d.run_id', '>=', from)
+      .where('d.run_id', '<', before)
+      .where('e.embedding', 'is not', null)
+      .orderBy('d.run_id')
+      .orderBy('e.item_id')
+      .execute();
+    return rows.map((row) => ({
+      runId: row.run_id as RunId,
+      itemId: row.item_id,
+      sourceName: row.source_name,
+      url: row.url,
+      title: row.title,
+      embedding: row.embedding ?? [],
+    }));
   }
 }
 

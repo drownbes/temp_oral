@@ -4,6 +4,7 @@ import type { DigestId } from '../../domain/digest.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
 import type { Story } from '../../domain/ranking.ts';
 import type { RunId } from '../../domain/run-id.ts';
+import type { EarlierCoverage } from '../../domain/story.ts';
 import { renderDigestPage } from './html-renderer.ts';
 
 const entry = (overrides: Partial<DigestEntry>): DigestEntry => ({
@@ -23,12 +24,14 @@ const entry = (overrides: Partial<DigestEntry>): DigestEntry => ({
 const story = (
   entries: DigestEntry[],
   text: { headline: string; summary: string } | null = null,
+  earlier: EarlierCoverage | null = null,
 ): Story => ({
   cluster: {
     id: entries[0]?.itemId ?? '',
     itemIds: entries.map((e) => e.itemId),
     headline: text?.headline ?? null,
     summary: text?.summary ?? null,
+    earlier,
   },
   entries,
   relevance: Math.max(...entries.map((e) => e.analysis?.relevance ?? -1)),
@@ -40,6 +43,7 @@ const page = (overrides: Partial<DigestPage> = {}): DigestPage => ({
   overview: null,
   featured: [story([entry({})])],
   alsoNoted: [story([entry({ itemId: 'i-2', title: 'Minor fix', analysis: null, failure: 'x' })])],
+  repeated: [],
   failedSources: [],
   itemCount: 2,
   analyzedCount: 1,
@@ -124,6 +128,41 @@ describe('renderDigestPage', () => {
     expect(html).toContain('href="#"');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).toContain('A &amp; B');
+  });
+
+  it('labels follow-ups with the earlier report and lists repeats only in the footer', () => {
+    const earlier = (kind: EarlierCoverage['kind']): EarlierCoverage => ({
+      kind,
+      runId: '2026-10-21',
+      sourceName: '9to5Linux',
+      title: 'DietPi 10.8 <released>',
+      url: 'https://9to5linux.com/dietpi-10-8',
+      similarity: kind === 'repeat' ? 1 : 0.9,
+    });
+    const html = renderDigestPage(
+      page({
+        featured: [story([entry({})], null, earlier('follow-up'))],
+        alsoNoted: [],
+        repeated: [
+          story(
+            [entry({ itemId: 'i-3', sourceName: 'LXer', title: 'DietPi 10.8 again' })],
+            null,
+            earlier('repeat'),
+          ),
+        ],
+        itemCount: 2,
+      }),
+      { timezone: 'UTC' },
+    );
+
+    expect(html).toContain(
+      '<p class="earlier">Follow-up · first reported 21 Oct: <a href="https://9to5linux.com/dietpi-10-8" rel="noopener noreferrer">DietPi 10.8 &lt;released&gt;</a> (9to5Linux)</p>',
+    );
+    expect(html).toContain('· 1 already reported');
+    expect(html).toContain('Already in an earlier digest, so not repeated: ');
+    expect(html).toContain('DietPi 10.8 again</a> (LXer)');
+    // Not among the stories
+    expect(html.split('<article>')).toHaveLength(2);
   });
 
   it('says so when nothing is new', () => {

@@ -222,6 +222,13 @@ which items from different sources count as the same story; a story never holds 
 of one source). Merged headlines and the overview use `OPENAI_SYNTHESIS_MODEL` (default
 `gpt-6-luna`).
 
+Stories the reader has already seen are recognised by comparing them with the digests
+published in the last `DIGEST_HISTORY_DAYS` (7) days. A story whose every item is a near-copy
+of an earlier one (`DIGEST_REPEAT_THRESHOLD`, 0.97: reposts and syndicated copies) is left out
+of the page and only listed in the footer; one that is merely close
+(`DIGEST_FOLLOW_UP_THRESHOLD`, 0.85) stays and is labelled as a follow-up, linking the earlier
+report. `GET /digests/:id` shows each story's `earlier` match and its similarity, for tuning.
+
 ## Things worth knowing
 
 - **MinIO is gone from nixpkgs**; local S3 is [versitygw](https://github.com/versity/versitygw)

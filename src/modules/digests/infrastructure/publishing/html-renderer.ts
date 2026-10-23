@@ -48,7 +48,8 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
     page.itemCount === 0
       ? 'Nothing new since the last digest.'
       : `${page.itemCount} new ${plural(page.itemCount, 'item')} from ${sources} ${plural(sources, 'source')} · ${page.featured.length} highlighted` +
-        (merged > 0 ? ` · ${merged} covered by several sources` : '');
+        (merged > 0 ? ` · ${merged} covered by several sources` : '') +
+        (page.repeated.length > 0 ? ` · ${page.repeated.length} already reported` : '');
 
   const featured = page.featured.map((story) => {
     const lead = story.entries[0] as DigestEntry;
@@ -60,7 +61,7 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
   <p class="source">${escapeHtml(lead.sourceName)}${publishedAt(lead, time)}</p>
   <h2>${link(lead.url, headline(story))}</h2>
   <p>${escapeHtml(story.cluster.summary ?? lead.analysis?.summary ?? '')}</p>
-  ${alsoCovered(story)}${tagList}
+  ${alsoCovered(story)}${followUp(story)}${tagList}
 </article>`;
   });
 
@@ -70,7 +71,8 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
   <ul>${page.alsoNoted
     .map((story) => {
       const lead = story.entries[0] as DigestEntry;
-      return `<li>${link(lead.url, headline(story))} <span>${story.entries.map((e) => escapeHtml(e.sourceName)).join(', ')}</span></li>`;
+      const label = story.cluster.earlier ? '<em>Follow-up</em> ' : '';
+      return `<li>${label}${link(lead.url, headline(story))} <span>${story.entries.map((e) => escapeHtml(e.sourceName)).join(', ')}</span></li>`;
     })
     .join('\n  ')}</ul>
 </section>`
@@ -83,6 +85,14 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
   const notes = [
     page.failedItemCount > 0
       ? `${page.failedItemCount} ${plural(page.failedItemCount, 'item')} could not be summarised and ${page.failedItemCount === 1 ? 'is' : 'are'} listed by title only.`
+      : '',
+    page.repeated.length > 0
+      ? `Already in an earlier digest, so not repeated: ${page.repeated
+          .map((story) => {
+            const lead = story.entries[0] as DigestEntry;
+            return `${link(lead.url, headline(story))} (${escapeHtml(lead.sourceName)})`;
+          })
+          .join('; ')}.`
       : '',
     page.failedSources.length > 0
       ? `Could not collect ${page.failedSources.length} ${plural(page.failedSources.length, 'source')}: ${page.failedSources.map((s) => escapeHtml(s.reason)).join('; ')}.`
@@ -131,6 +141,19 @@ function alsoCovered(story: Story): string {
   `;
 }
 
+/** A story seen before: says so, and links where it was first reported. */
+function followUp(story: Story): string {
+  const earlier = story.cluster.earlier;
+  if (!earlier) return '';
+  const day = new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(`${earlier.runId}T00:00:00Z`));
+  return `<p class="earlier">Follow-up · first reported ${escapeHtml(day)}: ${link(earlier.url, earlier.title)} (${escapeHtml(earlier.sourceName)})</p>
+  `;
+}
+
 function publishedAt(entry: DigestEntry, format: Intl.DateTimeFormat): string {
   return entry.publishedAt ? ` · ${escapeHtml(format.format(entry.publishedAt))}` : '';
 }
@@ -163,7 +186,8 @@ a:hover { color: var(--accent); text-decoration-color: currentColor; }
 .tags li { background: var(--chip); border-radius: 999px; padding: .05rem .6rem; font-size: .8rem; color: var(--muted); }
 .overview { margin: 0 0 1rem; padding: 1rem 1.25rem; background: var(--chip); border-radius: .75rem; }
 .overview p { margin: 0; }
-.covered { font-size: .85rem; color: var(--muted); }
+.covered, .earlier { font-size: .85rem; color: var(--muted); }
+.also em { font-style: normal; font-size: .8rem; color: var(--accent); }
 .also { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
 .also h2 { font-size: 1rem; margin: 0 0 .75rem; }
 .also ul { margin: 0; padding: 0; list-style: none; }

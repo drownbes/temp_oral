@@ -543,6 +543,27 @@ Independent tasks, any order:
   resubmit once; then items are marked skipped and counted in the footer.
 - **Cross-day dedupe:** compare today's cluster embeddings with the last N days of published
   clusters, then drop the story or label it "update". Move to pgvector if the volume needs it.
+
+  > **Status: done** (2026-10-23). Comparing the 2026-10-22 and 2026-10-23 digests found 12
+  > of 89 items similar (≥ 0.75) to one shown the day before: 4 exact reposts by LXer (an
+  > aggregator) at 1.00, real follow-ups at 0.89–0.95, and different stories at 0.80–0.81
+  > (two Linux 7.4 AMD changes). So across days the same-day threshold is too loose:
+  > - `markEarlierCoverage` (domain) matches each story's items against the embedded items of
+  >   published digests (not superseded or failed ones) from the last `DIGEST_HISTORY_DAYS`
+  >   (7). **Repeat** (hidden, listed in the footer) only if *every* item of the story is a
+  >   near-copy (≥ `DIGEST_REPEAT_THRESHOLD`, 0.97), so one new article among reposts keeps
+  >   it visible. **Follow-up** (shown, labelled "first reported <day>: <earlier article>")
+  >   at ≥ `DIGEST_FOLLOW_UP_THRESHOLD` (0.85). Hiding is only for near-copies; anything
+  >   merely similar stays visible.
+  > - Runs in `ingestEnrichment` right after clustering; the result is stored per story
+  >   (`earlier` in the `clusters` jsonb, no migration; older digests read as `null`).
+  >   Repeats get no merged headline and stay out of the overview.
+  > - Dry run on the real 2026-10-23 digest: the 4 LXer reposts hidden; SteamOS 3.9.4 Beta
+  >   (0.95), the LattePanda SBC (0.89) and LWN's daily "Security updates" (0.96) labelled
+  >   follow-ups; the 0.80–0.81 pairs untouched. A daily series being called a follow-up of
+  >   the previous day is harmless but not ideal; revisit with more days of data.
+  > - No pgvector: 7 days × ~90 items × 512 dimensions is compared in memory in
+  >   milliseconds.
 - **Source health:** auto-disable after `SOURCE_MAX_CONSECUTIVE_FAILURES`. Shown in
   `GET /sources` and in the digest footer.
 - **Notifications:** on publish or failure, `executeChild<SendNotificationWorkflow>` with

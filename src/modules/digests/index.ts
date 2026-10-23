@@ -149,6 +149,7 @@ export const digestsModule: ModuleDefinition = {
           embedder,
           clock,
           clusterThreshold: config.clusterThreshold,
+          earlierCoverage: config.earlierCoverage,
         }),
         submitSynthesis: new SubmitSynthesis({ digests, entries, profiles, synthesizer, clock }),
         checkSynthesis: new CheckSynthesis({ digests, synthesizer }),
