@@ -121,10 +121,13 @@ export interface DigestPage {
   readonly usage: TokenUsage;
 }
 
-/** Port: renders and publishes the digest page (one static HTML object on S3). */
+/**
+ * Port: renders and publishes the digest page (static HTML on S3). Every day's page is kept
+ * in the archive; only the newest day also becomes the "latest" page.
+ */
 export interface DigestPublisher {
-  /** Returns where the page was published. */
-  publish(page: DigestPage): Promise<string>;
+  /** Idempotent: publishing a day again overwrites its pages. Returns where its archived page is. */
+  publish(page: DigestPage, options: { readonly latest: boolean }): Promise<string>;
 }
 
 /** Port: starts a digest run asynchronously (a Temporal workflow in production). */

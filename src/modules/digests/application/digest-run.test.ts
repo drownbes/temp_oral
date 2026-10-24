@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { DigestId } from '../domain/digest.ts';
-import { EnrichmentFailedError } from '../domain/errors.ts';
+import {
+  DigestNotFoundError,
+  EnrichmentFailedError,
+  InvalidDigestStateError,
+} from '../domain/errors.ts';
 import { BeginDigest } from './begin-digest.ts';
 import { CheckEnrichment } from './check-enrichment.ts';
 import { CheckSynthesis } from './check-synthesis.ts';
@@ -12,6 +16,7 @@ import { MarkDigestFailed } from './mark-digest-failed.ts';
 import type { CollectedItem } from './ports.ts';
 import { PublishDigest } from './publish-digest.ts';
 import { RecordCollection } from './record-collection.ts';
+import { RepublishDigest } from './republish-digest.ts';
 import { StartDigestRun } from './start-digest-run.ts';
 import { SubmitEnrichment } from './submit-enrichment.ts';
 import { SubmitSynthesis } from './submit-synthesis.ts';
@@ -337,13 +342,58 @@ describe('a digest run', () => {
     expect(embedder.fake.submitted).toHaveLength(2);
   });
 
-  it('does not let a late digest overwrite a newer published day', async () => {
+  it('archives a late digest without letting it replace a newer latest day', async () => {
     const late = await startDigest('2026-10-21', [item('a')]);
     const newer = await startDigest('2026-10-22', [item('b')]);
     await finishDigest(newer.id);
 
     expect(await finishDigest(late.id)).toMatchObject({ status: 'superseded' });
-    expect(publisher.pages.map((p) => p.runId)).toEqual(['2026-10-22']);
+    expect(publisher.pages.map((p) => p.runId)).toEqual(['2026-10-22', '2026-10-21']);
+    expect(publisher.latest).toEqual(['2026-10-22']);
+  });
+
+  describe('republishing', () => {
+    const republish = () => new RepublishDigest({ digests, entries, profiles, publisher });
+
+    it('renders a finished day again without the LLM; only the newest published day is latest', async () => {
+      const late = await startDigest('2026-10-21', [item('a')]);
+      const older = await startDigest('2026-10-20', [item('b')]);
+      const newest = await startDigest('2026-10-22', [item('c')]);
+      await finishDigest(older.id);
+      await finishDigest(newest.id);
+      await finishDigest(late.id);
+      const submitted = analyzer.submitted.length;
+      publisher.pages.length = 0;
+      publisher.latest.length = 0;
+
+      expect(await republish().execute(older.id)).toEqual({
+        runId: '2026-10-20',
+        location: 'memory://archive/2026-10-20',
+        latest: false,
+      });
+      expect(await republish().execute(late.id)).toMatchObject({ latest: false });
+      expect(await republish().execute(newest.id)).toMatchObject({ latest: true });
+
+      expect(publisher.pages.map((p) => p.runId)).toEqual([
+        '2026-10-20',
+        '2026-10-21',
+        '2026-10-22',
+      ]);
+      expect(publisher.pages[0]?.featured.map((s) => s.entries[0]?.itemId)).toEqual(['b']);
+      expect(publisher.latest).toEqual(['2026-10-22']);
+      expect(analyzer.submitted).toHaveLength(submitted);
+      expect((await digests.findById(late.id))?.status).toBe('superseded');
+    });
+
+    it('refuses a digest that is not finished, or does not exist', async () => {
+      const { id } = await startDigest('2026-10-21', [item('a')]);
+
+      await expect(republish().execute(id)).rejects.toThrow(InvalidDigestStateError);
+      await expect(republish().execute(crypto.randomUUID() as DigestId)).rejects.toThrow(
+        DigestNotFoundError,
+      );
+      expect(publisher.pages).toEqual([]);
+    });
   });
 
   it('leaves out stories earlier digests showed and labels follow-ups', async () => {

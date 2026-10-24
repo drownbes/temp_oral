@@ -4,6 +4,7 @@ import type {
   GetInterestProfile,
   UpdateInterestProfile,
 } from '../../application/interest-profile.ts';
+import type { RepublishDigest } from '../../application/republish-digest.ts';
 import type { StartDigestRun } from '../../application/start-digest-run.ts';
 import type { GetDigest, ListDigests } from '../../application/view-digests.ts';
 import type { DigestId, DigestSnapshot } from '../../domain/digest.ts';
@@ -67,6 +68,7 @@ export function digestRoutes(
     listDigests: ListDigests;
     getDigest: GetDigest;
     startRun: StartDigestRun;
+    republish: RepublishDigest;
   },
 ): FastifyPluginAsync {
   // Named so @fastify/otel spans read "handler - digestsHttp" instead of the source text
@@ -93,6 +95,12 @@ export function digestRoutes(
     app.post('/digests/runs', async (request, reply) => {
       const { runId } = StartRunBody.parse(request.body ?? {});
       return reply.status(202).send(await useCases.startRun.execute(ownerId, runId));
+    });
+
+    // Renders a finished digest's page again from what is stored (no LLM calls)
+    app.post('/digests/:id/publish', async (request) => {
+      const { id } = DigestParams.parse(request.params);
+      return useCases.republish.execute(id as DigestId);
     });
   };
 }

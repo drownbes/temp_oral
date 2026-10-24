@@ -271,11 +271,15 @@ export class FakeDigestSynthesizer implements DigestSynthesizer {
 }
 
 export class RecordingPublisher implements DigestPublisher {
+  /** Every published page, archived ones included. */
   readonly pages: DigestPage[] = [];
+  /** Days that became the latest page, in order. */
+  readonly latest: RunId[] = [];
 
-  async publish(page: DigestPage): Promise<string> {
+  async publish(page: DigestPage, options: { readonly latest: boolean }): Promise<string> {
     this.pages.push(page);
-    return 'memory://latest';
+    if (options.latest) this.latest.push(page.runId);
+    return `memory://archive/${page.runId}`;
   }
 }
 

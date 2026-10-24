@@ -12,6 +12,7 @@ import { MarkDigestFailed } from './application/mark-digest-failed.ts';
 import type { DigestSynthesizer, ItemAnalyzer, ItemEmbedder } from './application/ports.ts';
 import { PublishDigest } from './application/publish-digest.ts';
 import { RecordCollection } from './application/record-collection.ts';
+import { RepublishDigest } from './application/republish-digest.ts';
 import { StartDigestRun } from './application/start-digest-run.ts';
 import { SubmitEnrichment } from './application/submit-enrichment.ts';
 import { SubmitSynthesis } from './application/submit-synthesis.ts';
@@ -56,6 +57,17 @@ function adapters(deps: ModuleDeps) {
     profiles: new KyselyInterestProfileRepository(db),
     clock: systemClock,
   };
+}
+
+/** The workflow publishes each new day; the API republishes finished ones. */
+function publisher(deps: ModuleDeps): S3DigestPublisher {
+  const { digest: config } = deps.config;
+  return new S3DigestPublisher(deps.s3, {
+    bucket: config.publishBucket,
+    key: config.publishKey,
+    archivePrefix: config.archivePrefix,
+    timezone: config.timezone,
+  });
 }
 
 /** The three LLM roles, all stubs or all OpenAI (one Batch API client). */
@@ -118,6 +130,7 @@ export const digestsModule: ModuleDefinition = {
         clock,
         timezone: deps.config.digest.timezone,
       }),
+      republish: new RepublishDigest({ digests, entries, profiles, publisher: publisher(deps) }),
     });
   },
   worker(deps) {
@@ -126,11 +139,6 @@ export const digestsModule: ModuleDefinition = {
     // The export belongs to the shared bucket, whatever bucket the page is published to
     const reader = new S3ExportedItemsReader(deps.s3, deps.config.s3.bucket);
     const { analyzer, embedder, synthesizer } = llm(deps);
-    const publisher = new S3DigestPublisher(deps.s3, {
-      bucket: config.publishBucket,
-      key: config.publishKey,
-      timezone: config.timezone,
-    });
     return {
       taskQueue: DIGESTS_TASK_QUEUE,
       workflowsPath: fileURLToPath(new URL('./interface/temporal/workflows.ts', import.meta.url)),
@@ -162,7 +170,13 @@ export const digestsModule: ModuleDefinition = {
         submitSynthesis: new SubmitSynthesis({ digests, entries, profiles, synthesizer, clock }),
         checkSynthesis: new CheckSynthesis({ digests, synthesizer }),
         ingestSynthesis: new IngestSynthesis({ digests, synthesizer, clock }),
-        publishDigest: new PublishDigest({ digests, entries, profiles, publisher, clock }),
+        publishDigest: new PublishDigest({
+          digests,
+          entries,
+          profiles,
+          publisher: publisher(deps),
+          clock,
+        }),
         markDigestFailed: new MarkDigestFailed({ digests, clock }),
         composeNotification: new ComposeNotification({
           digests,

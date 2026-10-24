@@ -115,6 +115,22 @@ curl -XPOST localhost:8080/digests/runs -H 'content-type: application/json' -d '
 curl localhost:8080/digests                                       # status, counts, token usage
 curl localhost:8080/digests/<id>                                  # + every entry and its analysis
 xdg-open .data/s3/app-dev/digests/latest/index.html              # the published page
+xdg-open .data/s3/app-dev/digests/archive/index.html             # every day's page
+```
+
+Every day's page is kept in the archive (`digests/archive/<day>.html`, listed by
+`digests/archive/index.html`, which each page links to); `latest/index.html` always shows the
+newest day. A day that finishes after a newer one (a slow batch) is archived and indexed but
+does not replace the latest page (`"status":"superseded"`).
+
+`POST /digests/<id>/publish` renders a finished digest again from what is stored and publishes
+it: no LLM calls, and the digest keeps its status. Use it after changing the page, or to fill
+the archive with days published before it existed (`409` while a digest is still running):
+
+```sh
+for id in $(curl -s 'localhost:8080/digests?limit=100' | jq -r '.[] | select(.status == "published" or .status == "superseded") | .id'); do
+  curl -s -XPOST "localhost:8080/digests/$id/publish"; echo
+done
 ```
 
 Locally `LLM_PROVIDER=stub` fills in fake summaries instantly. With `LLM_PROVIDER=openai` and
@@ -169,12 +185,14 @@ Contexts:
   or rendered in a browser). A daily
   collection run fetches them, stores raw HTML + text under `sources/raw/`, and exports the
   run's new items to `sources/exports/<runId>.jsonl` (see `sources/contracts`). Design and
-  roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md).
+  roadmap: [`docs/website-digest-plan.md`](docs/website-digest-plan.md). Tracking a new site or
+  adding a new source kind: [`docs/adding-sources.md`](docs/adding-sources.md).
 - **digests** — one digest per day: starts a sources collection run (child workflow through
   the sources contract), has every new item summarised, scored against the reader's interest
   profile and embedded (two LLM batches), groups coverage of the same story from different
   sources, merges each such story into one headline and writes an overview (a third batch),
-  ranks the stories, and publishes a single static HTML page to `DIGEST_PUBLISH_KEY` in S3.
+  ranks the stories, and publishes a static HTML page to `DIGEST_PUBLISH_KEY` in S3, keeping
+  every day's page under `DIGEST_ARCHIVE_PREFIX`.
 
 ### Rules (enforced by `pnpm arch`)
 
@@ -260,7 +278,9 @@ default: Batch API, half price, up to 24h | `direct`: normal API, full price, se
 for testing), `OPENAI_ITEM_MODEL` (default
 `gpt-6-luna`), `OPENAI_REASONING_EFFORT` (default `low`; `omit` for non-reasoning models), `DIGEST_CRON` + `DIGEST_TIMEZONE` (when the daily run fires, and which calendar
 day it covers), `DIGEST_PUBLISH_BUCKET` / `DIGEST_PUBLISH_KEY` (where the page goes; bucket
-defaults to `S3_BUCKET`), `DIGEST_MAX_ITEM_CHARS` (article text sent to the LLM per item).
+defaults to `S3_BUCKET`), `DIGEST_ARCHIVE_PREFIX` (`digests/archive/`: where every day's page
+is kept, in the same bucket; pages link each other relatively, so serve both prefixes from one
+place), `DIGEST_MAX_ITEM_CHARS` (article text sent to the LLM per item).
 Grouping: `OPENAI_EMBEDDING_MODEL` (default `text-embedding-3-small`),
 `OPENAI_EMBEDDING_DIMENSIONS` (512), `DIGEST_CLUSTER_THRESHOLD` (0.75: cosine similarity at
 which items from different sources count as the same story; a story never holds two items
@@ -297,6 +317,7 @@ The app never deletes from S3; set lifecycle rules on the bucket instead:
 | `sources/exports/` | each run's JSONL hand-off to digests | that day's digest, and re-running it | 30 days |
 | `digests/llm-results/` | direct-mode LLM answers | reusing paid answers when a day is re-run | 30 days |
 | `digests/latest/` | the published page | always (overwritten daily) | never |
+| `digests/archive/` | every day's page, and their index | reading past days | never (or expire `20*` keys; the index lists only what is left) |
 
 ```sh
 aws s3api put-bucket-lifecycle-configuration --bucket "$S3_BUCKET" --lifecycle-configuration '{

@@ -9,7 +9,7 @@ export const newDigestId = (): DigestId => crypto.randomUUID() as DigestId;
 
 /**
  * collecting → enriching → synthesizing → rendering → published
- *            ↘ (nothing new) ─────────────↗          ↘ superseded (a newer day already published)
+ *            ↘ (nothing new) ─────────────↗          ↘ superseded (archived only: a newer day is latest)
  * enriching: each item is analysed and embedded; the items are then grouped into stories.
  * synthesizing: stories covered by several sources get one headline; the day gets an overview.
  * Any unfinished state → failed; a failed digest can be restarted.
@@ -249,7 +249,7 @@ export class Digest {
     this.#state = { ...this.#state, status: 'published', publishedAt: now, updatedAt: now };
   }
 
-  /** A newer day's digest is already on the page; this one must not overwrite it. */
+  /** A newer day's digest is already the latest page; this one is only archived. */
   supersede(now: Date): void {
     this.#expect('rendering', 'supersede');
     this.#state = { ...this.#state, status: 'superseded', updatedAt: now };

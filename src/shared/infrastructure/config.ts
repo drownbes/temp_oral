@@ -100,6 +100,11 @@ const EnvSchema = z
     // Defaults to S3_BUCKET; set it to publish the page to a separate (e.g. public) bucket
     DIGEST_PUBLISH_BUCKET: z.string().min(1).optional(),
     DIGEST_PUBLISH_KEY: z.string().min(1).default('digests/latest/index.html'),
+    // Every day's page is kept under it (<prefix><YYYY-MM-DD>.html, plus an index.html)
+    DIGEST_ARCHIVE_PREFIX: z
+      .string()
+      .regex(/^[^/].*\/$/, 'must be a key prefix ending in "/"')
+      .default('digests/archive/'),
     // Told when a digest is published or fails (through the notifications context); no
     // notifications when unset. DIGEST_PUBLIC_URL, if the page is served, goes in the message.
     DIGEST_NOTIFY_RECIPIENT: z.email().optional(),
@@ -201,6 +206,7 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
       timezone: env.DIGEST_TIMEZONE,
       publishBucket: env.DIGEST_PUBLISH_BUCKET ?? env.S3_BUCKET,
       publishKey: env.DIGEST_PUBLISH_KEY,
+      archivePrefix: env.DIGEST_ARCHIVE_PREFIX,
       notifyRecipient: env.DIGEST_NOTIFY_RECIPIENT,
       publicUrl: env.DIGEST_PUBLIC_URL,
       maxItemChars: env.DIGEST_MAX_ITEM_CHARS,

@@ -2,10 +2,13 @@ import type { DigestPage } from '../../application/ports.ts';
 import type { FailedSource, TokenUsage } from '../../domain/digest.ts';
 import type { DigestEntry } from '../../domain/digest-entry.ts';
 import type { Story } from '../../domain/ranking.ts';
+import type { RunId } from '../../domain/run-id.ts';
 
 export interface RenderOptions {
   /** Time zone for the times shown next to items. */
   readonly timezone: string;
+  /** Link to the archive index, relative to where the page is published. */
+  readonly archiveHref?: string;
 }
 
 const ESCAPES: Record<string, string> = {
@@ -27,13 +30,7 @@ function safeHref(url: string): string {
 
 /** Renders the digest as one self-contained HTML document (inline CSS, no JS). */
 export function renderDigestPage(page: DigestPage, options: RenderOptions): string {
-  const day = new Intl.DateTimeFormat('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${page.runId}T00:00:00Z`));
+  const day = DAY.format(dateOf(page.runId));
   const time = new Intl.DateTimeFormat('en-GB', {
     day: 'numeric',
     month: 'short',
@@ -102,17 +99,13 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
     `Generated ${escapeHtml(time.format(page.generatedAt))}.`,
   ].filter(Boolean);
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Digest · ${escapeHtml(day)}</title>
-<style>${STYLES}</style>
-</head>
-<body>
-<main>
-<header>
+  const archive = options.archiveHref
+    ? `<nav><a href="${escapeHtml(options.archiveHref)}">All digests</a></nav>\n`
+    : '';
+
+  return htmlDocument(
+    `Digest · ${escapeHtml(day)}`,
+    `${archive}<header>
   <p class="eyebrow">Daily digest</p>
   <h1>${escapeHtml(day)}</h1>
   <p class="meta">${meta}</p>
@@ -120,7 +113,74 @@ export function renderDigestPage(page: DigestPage, options: RenderOptions): stri
 ${overview}
 ${featured.join('\n')}
 ${alsoNoted}
-<footer>${notes.map((n) => `<p>${n}</p>`).join('')}</footer>
+<footer>${notes.map((n) => `<p>${n}</p>`).join('')}</footer>`,
+  );
+}
+
+/** The archive index: every archived day, newest first, grouped by month. */
+export function renderArchiveIndex(
+  days: readonly RunId[],
+  options: { readonly dayHref: (runId: RunId) => string },
+): string {
+  const months = new Map<string, RunId[]>();
+  for (const runId of [...days].sort().reverse()) {
+    const month = MONTH.format(dateOf(runId));
+    months.set(month, [...(months.get(month) ?? []), runId]);
+  }
+  const sections = [...months].map(
+    ([month, runIds]) => `<section class="month">
+  <h2>${escapeHtml(month)}</h2>
+  <ul>${runIds
+    .map(
+      (runId) =>
+        `<li><a href="${escapeHtml(options.dayHref(runId))}">${escapeHtml(DAY.format(dateOf(runId)))}</a></li>`,
+    )
+    .join('\n  ')}</ul>
+</section>`,
+  );
+
+  return htmlDocument(
+    'All digests',
+    `<header>
+  <p class="eyebrow">Daily digest</p>
+  <h1>All digests</h1>
+  <p class="meta">${days.length} ${plural(days.length, 'day')}</p>
+</header>
+${sections.length > 0 ? sections.join('\n') : '<p>No digests yet.</p>'}`,
+  );
+}
+
+const DAY = new Intl.DateTimeFormat('en-GB', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+const MONTH = new Intl.DateTimeFormat('en-GB', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/** A run id is a calendar day: formatted in UTC so it stays that day in every time zone. */
+function dateOf(runId: RunId): Date {
+  return new Date(`${runId}T00:00:00Z`);
+}
+
+/** `title` is already escaped. */
+function htmlDocument(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<style>${STYLES}</style>
+</head>
+<body>
+<main>
+${body}
 </main>
 </body>
 </html>
@@ -218,4 +278,9 @@ a:hover { color: var(--accent); text-decoration-color: currentColor; }
 .also span { font-size: .85rem; margin-left: .35rem; }
 footer { margin-top: 3rem; font-size: .85rem; }
 footer p { margin: .25rem 0; }
+nav { margin-bottom: 1.5rem; font-size: .85rem; color: var(--muted); }
+.month { padding: 1.25rem 0; border-top: 1px solid var(--line); }
+.month h2 { font-size: 1rem; margin: 0 0 .5rem; color: var(--muted); }
+.month ul { margin: 0; padding: 0; list-style: none; }
+.month li { padding: .2rem 0; }
 `;

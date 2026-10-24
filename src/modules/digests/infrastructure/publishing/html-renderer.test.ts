@@ -5,7 +5,7 @@ import type { DigestEntry } from '../../domain/digest-entry.ts';
 import type { Story } from '../../domain/ranking.ts';
 import type { RunId } from '../../domain/run-id.ts';
 import type { EarlierCoverage } from '../../domain/story.ts';
-import { renderDigestPage } from './html-renderer.ts';
+import { renderArchiveIndex, renderDigestPage } from './html-renderer.ts';
 
 const entry = (overrides: Partial<DigestEntry>): DigestEntry => ({
   digestId: 'd-1' as DigestId,
@@ -205,5 +205,29 @@ describe('renderDigestPage', () => {
     );
     expect(html).toContain('Nothing new since the last digest.');
     expect(html).not.toContain('Also noted');
+  });
+});
+
+describe('archive links', () => {
+  it('links the archive index from a digest page when given where it is', () => {
+    expect(renderDigestPage(page(), { timezone: 'UTC' })).not.toContain('<nav>');
+    expect(
+      renderDigestPage(page(), { timezone: 'UTC', archiveHref: '../archive/index.html' }),
+    ).toContain('<nav><a href="../archive/index.html">All digests</a></nav>');
+  });
+
+  it('lists archived days newest first, grouped by month', () => {
+    const html = renderArchiveIndex(['2026-09-30', '2026-10-22', '2026-10-01'] as RunId[], {
+      dayHref: (runId) => `${runId}.html`,
+    });
+
+    expect(html).toContain('<p class="meta">3 days</p>');
+    expect(html.indexOf('October 2026')).toBeLessThan(html.indexOf('September 2026'));
+    expect(html.indexOf('2026-10-22.html')).toBeLessThan(html.indexOf('2026-10-01.html'));
+    expect(html).toContain('<li><a href="2026-09-30.html">Wednesday, 30 September 2026</a></li>');
+  });
+
+  it('says so when nothing is archived yet', () => {
+    expect(renderArchiveIndex([], { dayHref: String })).toContain('<p>No digests yet.</p>');
   });
 });

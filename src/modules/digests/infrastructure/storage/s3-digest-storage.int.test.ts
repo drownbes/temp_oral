@@ -47,11 +47,13 @@ describe('digests S3 adapters', () => {
     ]);
   });
 
-  it('publishes the rendered page as HTML', async () => {
+  it('archives every day, indexes the archive and replaces the latest page only when asked', async () => {
     const key = `${prefix}latest/index.html`;
-    const location = await new S3DigestPublisher(s3, { bucket, key, timezone: 'UTC' }).publish({
-      runId: '2026-10-21' as RunId,
-      generatedAt: new Date('2026-10-21T06:00:00Z'),
+    const archivePrefix = `${prefix}archive/`;
+    const publisher = new S3DigestPublisher(s3, { bucket, key, archivePrefix, timezone: 'UTC' });
+    const page = (runId: string) => ({
+      runId: runId as RunId,
+      generatedAt: new Date(`${runId}T06:00:00Z`),
       overview: null,
       featured: [],
       alsoNoted: [],
@@ -62,11 +64,28 @@ describe('digests S3 adapters', () => {
       failedItemCount: 0,
       usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     });
+    const read = async (at: string) => {
+      const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: at }));
+      expect(object.ContentType).toBe('text/html; charset=utf-8');
+      return (await object.Body?.transformToString()) ?? '';
+    };
 
-    expect(location).toBe(`s3://${bucket}/${key}`);
-    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    expect(object.ContentType).toBe('text/html; charset=utf-8');
-    expect(await object.Body?.transformToString()).toContain('Nothing new since the last digest.');
+    expect(await publisher.publish(page('2026-10-22'), { latest: true })).toBe(
+      `s3://${bucket}/${archivePrefix}2026-10-22.html`,
+    );
+    // A late day: archived and indexed, but the latest page stays on the newer day
+    await publisher.publish(page('2026-10-21'), { latest: false });
+
+    expect(await read(key)).toContain('Thursday, 22 October 2026');
+    expect(await read(key)).toContain('<a href="../archive/index.html">All digests</a>');
+    expect(await read(`${archivePrefix}2026-10-21.html`)).toContain(
+      'Nothing new since the last digest.',
+    );
+    expect(await read(`${archivePrefix}2026-10-21.html`)).toContain('<a href="index.html">');
+    const index = await read(`${archivePrefix}index.html`);
+    expect(index).toContain('<p class="meta">2 days</p>');
+    expect(index).toContain('<a href="2026-10-22.html">');
+    expect(index).toContain('<a href="2026-10-21.html">');
   });
 });
 
