@@ -10,7 +10,6 @@ const ModelPrices = z.record(
 const EnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
-    SERVICE_NAME: z.string().min(1).default('temp-oral'),
     LOG_LEVEL: LogLevel.default('info'),
 
     HTTP_HOST: z.string().default('0.0.0.0'),
@@ -148,7 +147,6 @@ export type AppConfig = ReturnType<typeof toConfig>;
 function toConfig(env: z.infer<typeof EnvSchema>) {
   return {
     env: env.NODE_ENV,
-    serviceName: env.SERVICE_NAME,
     log: { level: env.LOG_LEVEL },
     http: { host: env.HTTP_HOST, port: env.HTTP_PORT, maxUploadBytes: env.HTTP_MAX_UPLOAD_BYTES },
     database: { url: env.DATABASE_URL, poolMax: env.DATABASE_POOL_MAX },

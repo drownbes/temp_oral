@@ -1,12 +1,15 @@
 # Local development stack. Run inside the devShell: `process-compose up` (or `pnpm dev`).
 # All state lives in ./.data — delete it to start from scratch.
+# Every process sends its output through scripts/dev/ship-logs.ts into VictoriaLogs; services
+# that can log JSON are told to. `exec cmd > >(ship-logs) 2>&1` rather than a pipe keeps the
+# service itself as the process process-compose signals and waits for, with its exit code.
 version: "0.5"
 
 log_location: .data/process-compose.log
 
 processes:
   postgres:
-    command: scripts/dev/postgres.sh
+    command: exec scripts/dev/postgres.sh > >(node scripts/dev/ship-logs.ts postgres) 2>&1
     readiness_probe:
       exec:
         command: pg_isready -h 127.0.0.1 -p 5432 -U postgres
@@ -16,8 +19,8 @@ processes:
 
   postgres-init:
     command: |
-      psql -h 127.0.0.1 -U postgres -tAc "select 1 from pg_database where datname = 'app'" | grep -q 1 \
-        || createdb -h 127.0.0.1 -U postgres app
+      { psql -h 127.0.0.1 -U postgres -tAc "select 1 from pg_database where datname = 'app'" | grep -q 1 \
+        || createdb -h 127.0.0.1 -U postgres app; } > >(node scripts/dev/ship-logs.ts postgres-init) 2>&1
     depends_on:
       postgres:
         condition: process_healthy
@@ -26,7 +29,8 @@ processes:
     # versitygw serves every directory under .data/s3 as a bucket
     command: |
       mkdir -p .data/s3/app-dev
-      exec versitygw --access devaccess --secret devsecretkey --port 127.0.0.1:7070 posix .data/s3
+      exec versitygw --access devaccess --secret devsecretkey --port 127.0.0.1:7070 posix .data/s3 \
+        > >(node scripts/dev/ship-logs.ts s3) 2>&1
     readiness_probe:
       exec:
         # plain TCP check; an HTTP probe would fill the gateway log with 403s
@@ -36,7 +40,8 @@ processes:
   temporal:
     command: |
       exec temporal server start-dev --ip 127.0.0.1 --port 7233 --ui-port 8233 \
-        --db-filename .data/temporal.db --log-level warn
+        --db-filename .data/temporal.db --log-level warn --log-format json \
+        > >(node scripts/dev/ship-logs.ts temporal) 2>&1
     readiness_probe:
       exec:
         command: temporal operator namespace describe --namespace default --address 127.0.0.1:7233
@@ -46,7 +51,10 @@ processes:
   tempo:
     command: |
       mkdir -p .data/tempo
-      exec tempo -config.file=dev/tempo.yaml -config.expand-env=true
+      # `process restart` starts the new Tempo without waiting for the old one to exit
+      while (: </dev/tcp/127.0.0.1/3200) 2>/dev/null; do sleep 0.2; done
+      exec tempo -config.file=dev/tempo.yaml -config.expand-env=true \
+        > >(node scripts/dev/ship-logs.ts tempo) 2>&1
     readiness_probe:
       http_get:
         host: 127.0.0.1
@@ -55,7 +63,10 @@ processes:
       period_seconds: 2
 
   victorialogs:
-    command: exec victoria-logs -storageDataPath=.data/victorialogs -httpListenAddr=127.0.0.1:9428 -retentionPeriod=7d -loggerLevel=WARN
+    command: |
+      exec victoria-logs -storageDataPath=.data/victorialogs -httpListenAddr=127.0.0.1:9428 \
+        -retentionPeriod=7d -loggerLevel=WARN -loggerFormat=json \
+        > >(node scripts/dev/ship-logs.ts victorialogs) 2>&1
     readiness_probe:
       http_get:
         host: 127.0.0.1
@@ -63,22 +74,41 @@ processes:
         path: /health
       period_seconds: 1
 
+  victoriametrics:
+    # OTLP metrics from api/worker (Node SDK + Temporal core) and Tempo's span metrics.
+    # Only these resource attributes become labels; pid, host and command line would make
+    # a new series on every restart.
+    command: |
+      exec victoria-metrics -storageDataPath=.data/victoriametrics -httpListenAddr=127.0.0.1:8428 \
+        -retentionPeriod=7d -loggerLevel=WARN -loggerFormat=json \
+        -opentelemetry.usePrometheusNaming -opentelemetry.promoteAllResourceAttributes=false \
+        -opentelemetry.promoteResourceAttributes=service.name,service.version,deployment.environment \
+        > >(node scripts/dev/ship-logs.ts victoriametrics) 2>&1
+    readiness_probe:
+      http_get:
+        host: 127.0.0.1
+        port: 8428
+        path: /health
+      period_seconds: 1
+
   grafana:
-    command: scripts/dev/grafana.sh
+    command: exec scripts/dev/grafana.sh > >(node scripts/dev/ship-logs.ts grafana) 2>&1
     depends_on:
       tempo:
         condition: process_healthy
       victorialogs:
         condition: process_healthy
+      victoriametrics:
+        condition: process_healthy
 
   migrate:
-    command: pnpm db:migrate
+    command: exec pnpm db:migrate > >(node scripts/dev/ship-logs.ts migrate) 2>&1
     depends_on:
       postgres-init:
         condition: process_completed_successfully
 
   api:
-    command: pnpm dev:api | node scripts/dev/ship-logs.ts
+    command: exec pnpm dev:api > >(node scripts/dev/ship-logs.ts api) 2>&1
     depends_on:
       migrate:
         condition: process_completed_successfully
@@ -90,7 +120,7 @@ processes:
         condition: process_healthy
 
   worker:
-    command: pnpm dev:worker | node scripts/dev/ship-logs.ts
+    command: exec pnpm dev:worker > >(node scripts/dev/ship-logs.ts worker) 2>&1
     depends_on:
       migrate:
         condition: process_completed_successfully

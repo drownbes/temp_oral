@@ -16,5 +16,8 @@ export GF_AUTH_DISABLE_LOGIN_FORM=true
 export GF_ANALYTICS_REPORTING_ENABLED=false
 export GF_ANALYTICS_CHECK_FOR_UPDATES=false
 export GF_LOG_LEVEL=warn
+export GF_LOG_CONSOLE_FORMAT=json
+# Plugins come from the read-only Nix store; Grafana must not try to download or update them
+export GF_PLUGINS_PREINSTALL_DISABLED=true
 
 exec grafana server --homepath "$GRAFANA_HOME"

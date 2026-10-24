@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: temp-oral
+    type: file
+    allowUiUpdates: true
+    options:
+      # Edits made in the UI are lost on restart; export the JSON into dev/grafana/dashboards
+      path: ${GF_PATHS_PROVISIONING}/../dashboards

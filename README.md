@@ -15,9 +15,10 @@ pnpm dev             # process-compose: infra + migrations + api + worker
 | What              | Where                                   |
 | ----------------- | --------------------------------------- |
 | HTTP API          | http://127.0.0.1:8080                   |
-| Grafana           | http://127.0.0.1:3000 (anonymous admin) |
+| Grafana           | http://127.0.0.1:3000 (anonymous admin); dashboard *temp-oral overview* |
 | Temporal UI       | http://127.0.0.1:8233                   |
 | VictoriaLogs UI   | http://127.0.0.1:9428/select/vmui       |
+| VictoriaMetrics UI | http://127.0.0.1:8428/vmui             |
 | Postgres          | `postgres://postgres@127.0.0.1:5432/app` |
 | S3 (versitygw)    | http://127.0.0.1:7070, bucket `app-dev`, key `devaccess` / `devsecretkey` |
 
@@ -199,15 +200,30 @@ That keeps the option of splitting a context into its own service open.
 
 ## Observability
 
+Each process has one service name in logs (`service`), traces and metrics (`service.name` /
+`service_name`): `OTEL_SERVICE_NAME`, or `temp-oral-api`, `temp-oral-worker`, `temp-oral-migrate`.
+
 - **Logs**: pino JSON on stdout with `service`, `component`, `level`, ISO `time`, `msg`, and
   `trace_id`/`span_id` whenever a span is active (HTTP requests, activities, workflow logs via
-  Temporal sinks). Production log agents ship stdout to VictoriaLogs; locally
-  `scripts/dev/ship-logs.ts` does it and pretty-prints to the terminal.
+  Temporal sinks). The Temporal SDK's own "Activity failed" / "Workflow failed" lines carry the
+  trace ids too, the error as `err` and the failure type (domain error code) as `failureType`.
+  Production log agents ship stdout to VictoriaLogs; locally every process-compose process (app
+  and infrastructure) sends stdout+stderr through `scripts/dev/ship-logs.ts`, which
+  pretty-prints to the terminal and ships each line tagged with `process` (`api`, `worker`,
+  `postgres`, `temporal`, …). Query e.g. `process:temporal level:error`.
 - **Traces**: OpenTelemetry SDK, configured with the standard `OTEL_*` env vars
   (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER`, `OTEL_RESOURCE_ATTRIBUTES`,
   `OTEL_SERVICE_NAME`, `OTEL_SDK_DISABLED`). Instrumented: http, undici/fetch, Fastify,
-  pg, AWS SDK, Temporal client/workflows/activities. Service names default to
-  `temp-oral-api` and `temp-oral-worker`.
+  pg, AWS SDK, Temporal client/workflows/activities. A 4xx answer does not mark the request
+  span failed (OpenTelemetry HTTP conventions), so `{status=error}` in Tempo finds real
+  failures. New traces show up in search after about 30 s; lookup by id works at once.
+- **Metrics**: the same SDK exports OTLP metrics (HTTP server/client, Postgres queries and pool)
+  to `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, and the worker points Temporal's own metrics (task
+  slots, schedule-to-start latency, activity/workflow failures) there too; `OTEL_METRICS_EXPORTER=none`
+  turns both off. Without a metrics endpoint they go to `OTEL_EXPORTER_OTLP_ENDPOINT`, so point
+  that at a collector rather than at Tempo. Locally they land in VictoriaMetrics, together with
+  the span metrics and service graph Tempo generates; Grafana has a *temp-oral overview*
+  dashboard (`dev/grafana/dashboards/`) and the service map on the Tempo datasource.
 
 ## Configuration
 

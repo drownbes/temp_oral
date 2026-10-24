@@ -1,4 +1,10 @@
-import { GetObjectCommand, NoSuchKey, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  NoSuchKey,
+  PutObjectCommand,
+  type S3Client,
+} from '@aws-sdk/client-s3';
 import type { ResultStore } from '../llm/openai-direct-client.ts';
 
 /** Direct-mode LLM results under `digests/llm-results/` in the shared bucket. */
@@ -14,6 +20,12 @@ export class S3LlmResultStore implements ResultStore {
   }
 
   async get(key: string): Promise<string | undefined> {
+    // A miss is the usual case (results not stored yet). Fetching a missing object answers 404,
+    // which the trace shows as a failed call, so list the key first.
+    const { KeyCount } = await this.#s3.send(
+      new ListObjectsV2Command({ Bucket: this.#bucket, Prefix: this.#key(key), MaxKeys: 1 }),
+    );
+    if (!KeyCount) return undefined;
     try {
       const { Body } = await this.#s3.send(
         new GetObjectCommand({ Bucket: this.#bucket, Key: this.#key(key) }),

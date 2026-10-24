@@ -21,7 +21,9 @@ Guidance for anyone (human or AI agent) changing this codebase. Read this before
 6. **Everything that may be retried is idempotent.** Activities, use cases called from them and
    workflow starts must be safe to run twice (deterministic IDs, idempotency keys, status checks).
 7. **Observable by default.** Structured JSON logs with trace correlation, OpenTelemetry spans
-   across HTTP → DB/S3 → Temporal. Don't add `console.log`; use the injected pino logger.
+   across HTTP → DB/S3 → Temporal, OTLP metrics (incl. Temporal's). Don't add `console.log`;
+   use the injected pino logger. A span marked failed should mean a real failure: an expected
+   miss (cache lookup, optional object) must not surface as an erroring call.
 8. **Boundaries are enforced, not just documented.** `pnpm arch` (dependency-cruiser) fails the
    build on layer and context violations. Fix the design; don't weaken the rules.
 

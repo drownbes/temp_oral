@@ -1,0 +1,2 @@
+# Grafana reads every provisioning folder; an empty file keeps it from reporting this one missing
+apiVersion: 1

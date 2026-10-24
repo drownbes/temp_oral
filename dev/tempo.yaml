@@ -6,6 +6,7 @@ server:
   grpc_listen_address: 127.0.0.1
   grpc_listen_port: 9095
   log_level: warn
+  log_format: json
 distributor:
   receivers:
     otlp:
@@ -29,5 +30,20 @@ live_store:
 block_builder:
   wal:
     path: ${DEV_DATA_DIR}/tempo/block-builder/traces
+backend_worker:
+  # Default 30s: every stop waits that long for compaction work a dev Tempo hardly has, so
+  # process-compose restarts would start the next Tempo while this one still holds the ports
+  finish_on_shutdown_timeout: 2s
 backend_scheduler:
   local_work_path: ${DEV_DATA_DIR}/tempo/backend-scheduler
+# Span metrics (rate, errors, latency per service and span) and the service graph, written to
+# VictoriaMetrics; Grafana's service map and the dashboard read them from there.
+metrics_generator:
+  storage:
+    path: ${DEV_DATA_DIR}/tempo/generator/wal
+    remote_write:
+      - url: http://127.0.0.1:8428/api/v1/write
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]

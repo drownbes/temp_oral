@@ -1,18 +1,20 @@
 import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { type Logger, pino, stdTimeFunctions } from 'pino';
 import type { AppConfig } from './config.ts';
+import { serviceName } from './service-name.ts';
 
 export type { Logger };
 
 /**
  * Structured JSON logger writing to stdout. In production the log agent ships stdout to
  * VictoriaLogs; locally scripts/dev/ship-logs.ts does the same.
- * Every line logged inside an active span carries trace_id/span_id for log <-> trace correlation.
+ * Every line logged inside an active span carries trace_id/span_id for log <-> trace correlation,
+ * and `service` matches the process's service.name in traces and metrics.
  */
 export function createLogger(config: AppConfig, component: string): Logger {
   return pino({
     level: config.log.level,
-    base: { service: config.serviceName, component, env: config.env },
+    base: { service: serviceName(component), component, env: config.env },
     messageKey: 'msg',
     timestamp: stdTimeFunctions.isoTime,
     formatters: { level: (label) => ({ level: label }) },

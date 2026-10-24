@@ -28,6 +28,11 @@
               name = "victoriametrics-logs-datasource";
               path = pkgs.grafanaPlugins.victoriametrics-logs-datasource;
             }
+            # VictoriaMetrics speaks PromQL; Grafana 13 ships the Prometheus datasource separately
+            {
+              name = "prometheus";
+              path = pkgs.grafanaPlugins.prometheus;
+            }
           ];
         in
         {
@@ -46,6 +51,7 @@
               temporal-cli
               tempo
               victorialogs
+              victoriametrics
               grafana
             ];
 

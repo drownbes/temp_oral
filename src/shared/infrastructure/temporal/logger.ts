@@ -21,7 +21,21 @@ export class PinoTemporalLogger implements TemporalLogger {
   }
 
   log(level: LogLevel, message: string, meta?: LogMetadata): void {
-    this.#logger[LEVELS[level]](meta ?? {}, message);
+    // The SDK reports failures as `error`; pino only serialises message, stack and cause of
+    // an Error under `err`, where `err.type` is the class name. An ApplicationFailure's own
+    // type (the domain error code) is kept as `failureType`. The task token is an opaque blob.
+    const { error, taskToken: _taskToken, ...rest } = meta ?? {};
+    if (error === undefined) {
+      this.#logger[LEVELS[level]](rest, message);
+      return;
+    }
+    const failureType = (error as { type?: unknown }).type;
+    this.#logger[LEVELS[level]](
+      typeof failureType === 'string'
+        ? { ...rest, err: error, failureType }
+        : { ...rest, err: error },
+      message,
+    );
   }
   trace(message: string, meta?: LogMetadata): void {
     this.log('TRACE', message, meta);

@@ -1,8 +1,10 @@
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import { loadConfig } from '#shared/infrastructure/config.ts';
 import { Lifecycle } from '#shared/infrastructure/lifecycle.ts';
 import { createLogger } from '#shared/infrastructure/logger.ts';
 import type { Telemetry } from '#shared/infrastructure/telemetry/telemetry.ts';
+import { logTraceInterceptors } from '#shared/infrastructure/temporal/log-trace-interceptors.ts';
 import { PinoTemporalLogger } from '#shared/infrastructure/temporal/logger.ts';
 import { upsertSchedules } from '#shared/infrastructure/temporal/schedules.ts';
 import {
@@ -23,7 +25,22 @@ export async function runWorker(telemetry: Telemetry): Promise<void> {
   lifecycle.onShutdown('telemetry', () => telemetry.shutdown());
 
   // The Runtime handles SIGINT/SIGTERM by draining all workers; run() then resolves below.
-  Runtime.install({ logger: new PinoTemporalLogger(logger) });
+  // Temporal's metrics (task slots, schedule-to-start latency, failures) come from its Rust
+  // core, which exports them itself, to the same OTLP endpoint as the Node SDK's metrics.
+  // Its resource is `temporal-core-sdk` unless OTEL_SERVICE_NAME is set, and attachServiceName
+  // would label every metric with that too; report as this process's service instead.
+  process.env.OTEL_SERVICE_NAME ??= String(telemetry.resource.attributes[ATTR_SERVICE_NAME]);
+  Runtime.install({
+    logger: new PinoTemporalLogger(logger),
+    telemetryOptions: telemetry.metricsUrl
+      ? {
+          metrics: {
+            otel: { url: telemetry.metricsUrl, http: true, useSecondsForDurations: true },
+            attachServiceName: false,
+          },
+        }
+      : undefined,
+  });
 
   const deps = await createModuleDeps(config, logger, telemetry, lifecycle);
   const connection = await NativeConnection.connect(connectionOptions(config.temporal));
@@ -52,6 +69,7 @@ export async function runWorker(telemetry: Telemetry): Promise<void> {
         activities,
         maxConcurrentActivityTaskExecutions: maxConcurrentActivities,
         plugins: [plugin],
+        interceptors: logTraceInterceptors(),
       }),
     ),
   );

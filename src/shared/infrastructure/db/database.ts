@@ -2,6 +2,7 @@ import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import type { AppConfig } from '../config.ts';
 import type { Logger } from '../logger.ts';
+import { SYSTEM_NAME } from '../service-name.ts';
 
 /**
  * One pool per process, shared by all modules. Each bounded context narrows it to its
@@ -14,7 +15,7 @@ export function createDatabase(config: AppConfig, logger: Logger): Database {
   const pool = new pg.Pool({
     connectionString: config.database.url,
     max: config.database.poolMax,
-    application_name: config.serviceName,
+    application_name: SYSTEM_NAME,
   });
   pool.on('error', (err) => logger.error({ err }, 'idle postgres client error'));
 
