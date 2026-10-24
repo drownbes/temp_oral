@@ -24,12 +24,6 @@ pnpm dev             # process-compose: infra + migrations + api + worker
 
 All local state lives in `.data/` — delete it to start over.
 
-```sh
-curl -F uploadedBy=ada@example.com -F file=@README.md localhost:8080/documents
-curl localhost:8080/documents/<id>                       # status: processed, checksum
-curl 'localhost:8080/notifications?recipient=ada@example.com'
-```
-
 Sources and collection runs:
 
 ```sh
@@ -137,9 +131,11 @@ Locally `LLM_PROVIDER=stub` fills in fake summaries instantly. With `LLM_PROVIDE
 `OPENAI_API_KEY` (put them in `.env`) items go through the OpenAI Batch API: half the price,
 but results can take up to 24 hours, and the workflow waits on durable timers until they do.
 
-In Grafana → Explore → Tempo, one trace spans `POST /documents` → S3 → Postgres →
-`processDocumentWorkflow` → activities → `sendNotificationWorkflow`; "Logs for this span"
-jumps to the matching VictoriaLogs lines, and log lines link back to the trace.
+In Grafana → Explore → Tempo, one trace spans `POST /digests/runs` → the digest workflow →
+the sources collection (child workflow) → fetches, Postgres and S3 → the LLM calls →
+publishing → `sendNotificationWorkflow`; "Logs for this span" jumps to the matching
+VictoriaLogs lines, and log lines link back to the trace. Sent notifications (only logged so
+far) are listed by `curl 'localhost:8080/notifications?recipient=dev@example.com'`.
 
 ## Scripts
 
@@ -177,10 +173,8 @@ src/
 
 Contexts:
 
-- **documents** (example) — upload to S3, metadata in Postgres, a Temporal workflow computes a
-  checksum.
 - **notifications** — idempotent notification sending; exposes a contract (task queue,
-  workflow name, input/output types) that documents uses to start its workflow as a child.
+  workflow name, input/output types) that digests uses to start its workflow as a child.
 - **sources** — the websites the digest tracks (feeds, listing pages, watched pages; over HTTP
   or rendered in a browser). A daily
   collection run fetches them, stores raw HTML + text under `sources/raw/`, and exports the

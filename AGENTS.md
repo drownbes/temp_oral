@@ -75,19 +75,19 @@ No circular dependencies anywhere.
 
 ### What each context owns
 
-- A **Postgres schema** named after the context (`documents`, `notifications`), its tables, and
+- A **Postgres schema** named after the context (`sources`, `digests`), its tables, and
   its migration history (tracked inside that schema). Never query another context's schema.
-- An **S3 key prefix** (`documents/…`) in the shared bucket.
-- A **Temporal task queue** (`documents`, `notifications`). Cross-context work is started by
+- An **S3 key prefix** (`sources/…`, `digests/…`) in the shared bucket.
+- A **Temporal task queue** (`sources`, `digests`). Cross-context work is started by
   workflow name on the other context's queue, using names/types from its `contracts/`.
 
 ## Layer conventions
 
 ### Domain
 - Aggregate = class with private state (`#state`), a `static` factory that validates invariants
-  (`Document.upload`), `static restore(snapshot)` for rehydration without validation,
+  (`Source.create`), `static restore(snapshot)` for rehydration without validation,
   intention-revealing methods for transitions, and `toSnapshot()` returning a readonly plain object.
-- IDs are branded strings (`Brand<string, 'DocumentId'>`) with a `newXxxId()` helper.
+- IDs are branded strings (`Brand<string, 'SourceId'>`) with a `newXxxId()` helper.
 - Errors extend `NotFoundError` / `ValidationError` / `ConflictError` from `shared/kernel` and
   have a stable `code`. Adapters map by class/code, never by message.
 - Time is passed in (`now: Date`); the domain never calls `new Date()`.
@@ -96,7 +96,7 @@ No circular dependencies anywhere.
 - One class per use case with a `#deps` field, a `XxxDeps` interface, and `execute(input)`.
 - Depends on ports (domain repositories, `application/ports.ts`) and `Clock`, never adapters.
 - Returns snapshots/plain results, not aggregates, to the edge.
-- Use cases invoked by activities must be idempotent (see `ProcessDocument`, `SendNotification`).
+- Use cases invoked by activities must be idempotent (see `CollectSource`, `SendNotification`).
 
 ### Infrastructure (outbound adapters)
 - Class `implements` the port; takes its client in the constructor.
@@ -106,7 +106,7 @@ No circular dependencies anywhere.
   always `db.schema.withSchema('<context>')`. Never edit an applied migration; add a new one.
 
 ### Interface (inbound adapters)
-- HTTP: a named Fastify plugin function (`async function documentsHttp(app)` — the name shows
+- HTTP: a named Fastify plugin function (`async function sourcesHttp(app)` — the name shows
   up in spans). Validate input with zod (`ZodError` → 400), call a use case, map to a DTO.
   Throw domain errors; the shared error handler maps them (404/422/409).
 - Activities: thin wrappers around use cases, wrapped in `failOnDomainError` so domain errors
@@ -166,7 +166,7 @@ Every new domain rule gets a domain test; every adapter gets an integration test
 - Config only via `loadConfig()` (zod-validated env); add new settings to its schema with
   defaults suitable for production, and dev values to `.env.development`.
 - Logging: inject `Logger`; log structured objects first, message second
-  (`logger.info({ documentId }, 'document processed')`). Never log secrets or file contents.
+  (`logger.info({ sourceId }, 'source collected')`). Never log secrets or file contents.
 - Telemetry must start before instrumented libraries are imported — entrypoints in `src/main`
   import the rest dynamically after `startTelemetry()`. Keep it that way.
 

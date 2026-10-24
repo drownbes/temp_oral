@@ -14,11 +14,6 @@ const EnvSchema = z
 
     HTTP_HOST: z.string().default('0.0.0.0'),
     HTTP_PORT: z.coerce.number().int().positive().default(8080),
-    HTTP_MAX_UPLOAD_BYTES: z.coerce
-      .number()
-      .int()
-      .positive()
-      .default(10 * 1024 * 1024),
 
     DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
@@ -153,7 +148,7 @@ function toConfig(env: z.infer<typeof EnvSchema>) {
   return {
     env: env.NODE_ENV,
     log: { level: env.LOG_LEVEL },
-    http: { host: env.HTTP_HOST, port: env.HTTP_PORT, maxUploadBytes: env.HTTP_MAX_UPLOAD_BYTES },
+    http: { host: env.HTTP_HOST, port: env.HTTP_PORT },
     database: { url: env.DATABASE_URL, poolMax: env.DATABASE_POOL_MAX },
     s3: {
       bucket: env.S3_BUCKET,

@@ -621,5 +621,6 @@ Independent tasks, any order:
 ## Open questions before phase 1
 
 - Keep or remove the example `documents` context? `notifications` stays for phase 6.
+  > Removed on 2026-10-24: nothing depended on it, and its upload endpoint was open.
 - Which OpenAI models to use per task; it's config-only, but it affects cost estimates.
 - Notification recipient (phase 6).

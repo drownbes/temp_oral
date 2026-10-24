@@ -18,7 +18,6 @@ export async function runApi(telemetry: Telemetry): Promise<void> {
 
   const app = await createHttpServer({
     logger,
-    maxUploadBytes: config.http.maxUploadBytes,
     readinessChecks: {
       postgres: () => sql`select 1`.execute(deps.db),
       temporal: () => deps.temporal.workflowService.getSystemInfo({}),

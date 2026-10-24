@@ -1,4 +1,3 @@
-import multipart from '@fastify/multipart';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance, LogController } from 'fastify';
 import { ZodError } from 'zod';
 import { ConflictError, DomainError, NotFoundError, ValidationError } from '../../kernel/errors.ts';
@@ -6,7 +5,6 @@ import type { Logger } from '../logger.ts';
 
 export interface HttpServerOptions {
   readonly logger: Logger;
-  readonly maxUploadBytes: number;
   readonly readinessChecks: Record<string, () => Promise<unknown>>;
 }
 
@@ -25,8 +23,6 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Fast
     }),
     requestIdHeader: 'x-request-id',
   });
-
-  await app.register(multipart, { limits: { fileSize: options.maxUploadBytes, files: 1 } });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof DomainError) {
