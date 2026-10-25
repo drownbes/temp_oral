@@ -198,6 +198,9 @@ in
           HTTP_PORT = toString cfg.api.port;
         }
         // cfg.api.environment;
+        # Listening on 0.0.0.0, Fastify lists the interfaces to log their addresses, which
+        # Node reads over netlink (EAFNOSUPPORT, error 97, without it)
+        serviceConfig.RestrictAddressFamilies = hardening.RestrictAddressFamilies ++ [ "AF_NETLINK" ];
       });
 
       temp-oral-worker = lib.mkIf cfg.worker.enable (appService {

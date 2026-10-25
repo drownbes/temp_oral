@@ -95,6 +95,8 @@ pkgs.testers.runNixOSTest {
           # The test site is on localhost
           FETCH_ALLOW_PRIVATE_NETWORKS = "true";
         };
+        # All interfaces, like on a server: Fastify then reads them over netlink
+        api.host = "0.0.0.0";
         api.environment.DATABASE_POOL_MAX = "4";
         browserWorker.enable = true;
       };
