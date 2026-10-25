@@ -11,7 +11,27 @@ export interface ModuleMigrations {
   readonly folder: string;
 }
 
+/**
+ * Safe to run from several processes at once (each deployment migrates before it starts): a
+ * session advisory lock serialises whole runs, including the `create schema` that Kysely's own
+ * per-schema lock doesn't cover.
+ */
 export async function migrateToLatest(
+  db: Database,
+  modules: readonly ModuleMigrations[],
+  logger: Logger,
+): Promise<void> {
+  await db.connection().execute(async (conn) => {
+    await sql`select pg_advisory_lock(hashtext('temp-oral:migrations'))`.execute(conn);
+    try {
+      await migrateModules(conn, modules, logger);
+    } finally {
+      await sql`select pg_advisory_unlock(hashtext('temp-oral:migrations'))`.execute(conn);
+    }
+  });
+}
+
+async function migrateModules(
   db: Database,
   modules: readonly ModuleMigrations[],
   logger: Logger,

@@ -76,11 +76,16 @@ export async function runWorker(telemetry: Telemetry): Promise<void> {
   logger.info({ taskQueues: workers.map((w) => w.options.taskQueue) }, 'workers started');
 
   // After the workers exist, so a schedule firing right away finds someone to run it. A bad
-  // schedule (e.g. invalid cron) fails startup rather than silently never running.
+  // schedule (e.g. invalid cron) fails startup rather than silently never running. Only the
+  // deployment serving a schedule's queue manages it, so a worker for other queues (e.g. the
+  // browser worker) can't write back an outdated spec while a deploy is rolling.
+  const served = new Set(definitions.map(({ taskQueue }) => taskQueue));
   try {
     await upsertSchedules(
       deps.temporal,
-      modules.flatMap((module) => module.schedules?.(deps) ?? []),
+      modules
+        .flatMap((module) => module.schedules?.(deps) ?? [])
+        .filter(({ taskQueue }) => served.has(taskQueue)),
       logger,
     );
   } catch (err) {
