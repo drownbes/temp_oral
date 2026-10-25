@@ -237,6 +237,45 @@ Each process has one service name in logs (`service`), traces and metrics (`serv
   the span metrics and service graph Tempo generates; Grafana has a *temp-oral overview*
   dashboard (`dev/grafana/dashboards/`) and the service map on the Tempo datasource.
 
+## Nix package
+
+`nix build .#temp-oral` (`nix/package.nix`) packages the app for deployment: production
+`node_modules` plus `src/` (no tests), run by Node 26 directly. It provides `temp-oral-migrate`,
+`temp-oral-api` and `temp-oral-worker`; they take their configuration from the environment like
+any other deployment and default `NODE_ENV=production`. The worker's `PLAYWRIGHT_BROWSERS_PATH`
+defaults to the Chromium build matching `playwright-core`. After changing dependencies, update
+`pnpmDeps.hash`: set it to `lib.fakeHash`, build, and copy the hash from the mismatch error.
+
+`nixosModules.default` (`nix/module.nix`) runs it as systemd services: `temp-oral-api`,
+`temp-oral-worker` and, with `browserWorker.enable`, `temp-oral-browser-worker` (the
+`sources-browser` queue only, with a `MemoryMax`). Each migrates before it starts (migrations
+hold an advisory lock, so concurrent runs are safe); a failed migration fails the start, which
+`Restart=` retries. They run hardened as one dynamic user (`temp_oral` by default, so Postgres
+peer auth over the socket works). `dependencies` are wanted, not required, so a restart of
+Postgres or Temporal never leaves the app stopped. Per-unit settings (e.g. `DATABASE_POOL_MAX`)
+go in `api.environment`, `worker.environment` and `browserWorker.environment`. The host
+provides Postgres, S3 and Temporal:
+
+```nix
+services.temp-oral = {
+  enable = true;
+  dependencies = [ "postgresql.target" "temporal.service" "garage.service" ];
+  environment = {
+    DATABASE_URL = "postgres://temp_oral@localhost/temp_oral?host=/run/postgresql";
+    S3_BUCKET = "temp-oral";
+    S3_ENDPOINT = "http://127.0.0.1:3900";
+    TEMPORAL_ADDRESS = "127.0.0.1:7233";
+  };
+  environmentFiles = [ config.age.secrets.temp-oral-env.path ]; # OPENAI_API_KEY, AWS_*
+  browserWorker.enable = true;
+};
+```
+
+`nix build .#checks.x86_64-linux.module` boots it in a VM (`nix/test.nix`) against a local
+Postgres, Temporal dev server and S3 gateway: concurrent migrations, a browser preview inside the
+sandbox, a Temporal restart, and a whole digest run (stub LLM) published to S3. It prints each
+unit's `systemd-analyze security` score.
+
 ## Configuration
 
 Validated once at startup by `src/shared/infrastructure/config.ts`; invalid config exits with a

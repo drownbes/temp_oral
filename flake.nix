@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs, ... }:
     let
       systems = [
         "x86_64-linux"
@@ -13,8 +13,39 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+      # Headless Chromium for browser sources. playwright-core in package.json is pinned to this
+      # playwright-driver's version, since each Playwright release expects its own build.
+      playwrightBrowsers =
+        pkgs:
+        pkgs.playwright-driver.browsers.override {
+          withChromium = false;
+          withFirefox = false;
+          withWebkit = false;
+          withFfmpeg = false;
+        };
     in
     {
+      packages = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        rec {
+          temp-oral = pkgs.callPackage ./nix/package.nix {
+            playwrightBrowsers = playwrightBrowsers pkgs;
+          };
+          default = temp-oral;
+        }
+      );
+
+      nixosModules.default = import ./nix/module.nix self;
+
+      checks.x86_64-linux.module = import ./nix/test.nix {
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        module = self.nixosModules.default;
+      };
+
       devShells = forAllSystems (
         pkgs:
         let
@@ -66,17 +97,8 @@
               # Biome from nixpkgs; the npm package ships a binary that will not run on NixOS
               export BIOME_BINARY="${pkgs.biome}/bin/biome"
             ''
-            # Headless Chromium for browser sources. playwright-core in package.json is pinned to
-            # this playwright-driver's version, since each Playwright release expects its own build.
             + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              export PLAYWRIGHT_BROWSERS_PATH="${
-                pkgs.playwright-driver.browsers.override {
-                  withChromium = false;
-                  withFirefox = false;
-                  withWebkit = false;
-                  withFfmpeg = false;
-                }
-              }"
+              export PLAYWRIGHT_BROWSERS_PATH="${playwrightBrowsers pkgs}"
             '';
           };
         }
